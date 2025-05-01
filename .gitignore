@@ -213,4 +213,6 @@ Temporary Items
 # Helm Chart dependencies
 **/charts/*.tgz
 
+# Claude instruction files
+CLAUDE.md
 **/.claude/settings.local.json
