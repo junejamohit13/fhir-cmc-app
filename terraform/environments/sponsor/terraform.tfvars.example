@@ -2,41 +2,41 @@ aws_region       = "us-east-1"
 project          = "fhir-cmc"
 environment      = "sponsor"
 vpc_cidr         = "10.0.0.0/16"
-availability_zones = ["us-east-1a", "us-east-1b", "us-east-1c"]
-domain_name      = "sponsor.example.com"
+availability_zones = ["us-east-1a", "us-east-1b"]
+domain_name      = "sponsor.cmc-fhir-demo.com"
 create_route53_zone = false
 
-# Database
+# Database - reduced for cost savings
 db_name          = "hapifhir"
 db_username      = "admin"
 db_password      = "YourStrongPasswordHere123!"
 postgres_version = "15.3"
-db_instance_count = 2
+db_instance_count = 1         # Reduced from 2 to 1
 db_min_capacity  = 0.5
-db_max_capacity  = 8
+db_max_capacity  = 2          # Reduced from 8 to 2
 
 # Docker images
-fhir_image       = "hapiproject/hapi:latest"
+fhir_image       = "123456789012.dkr.ecr.us-east-1.amazonaws.com/fhir-cmc-hapi-fhir:latest"
 frontend_image   = "123456789012.dkr.ecr.us-east-1.amazonaws.com/fhir-cmc-sponsor-frontend:latest"
 backend_image    = "123456789012.dkr.ecr.us-east-1.amazonaws.com/fhir-cmc-sponsor-backend:latest"
 
-# ECS task sizing
-fhir_task_cpu      = 1024
-fhir_task_memory   = 2048
-frontend_task_cpu  = 256
-frontend_task_memory = 512
-backend_task_cpu   = 512
-backend_task_memory = 1024
+# ECS task sizing - reduced for cost savings
+fhir_task_cpu      = 512      # Reduced from 1024 to 512
+fhir_task_memory   = 1024     # Reduced from 2048 to 1024
+frontend_task_cpu  = 256      # Kept the same (already minimum)
+frontend_task_memory = 512    # Kept the same (already minimum)
+backend_task_cpu   = 256      # Reduced from 512 to 256
+backend_task_memory = 512     # Reduced from 1024 to 512
 
-# Service counts
-fhir_service_count     = 2
-frontend_service_count = 2
-backend_service_count  = 2
+# Service counts - reduced for cost savings
+fhir_service_count     = 1    # Reduced from 2 to 1
+frontend_service_count = 1    # Reduced from 2 to 1
+backend_service_count  = 1    # Reduced from 2 to 1
 
-# Auto scaling
-fhir_min_count     = 2
-fhir_max_count     = 10
-frontend_min_count = 2
-frontend_max_count = 10
-backend_min_count  = 2
-backend_max_count  = 10
+# Auto scaling - reduced for cost savings
+fhir_min_count     = 1        # Reduced from 2 to 1
+fhir_max_count     = 2        # Reduced from 10 to 2
+frontend_min_count = 1        # Reduced from 2 to 1
+frontend_max_count = 2        # Reduced from 10 to 2
+backend_min_count  = 1        # Reduced from 2 to 1
+backend_max_count  = 2        # Reduced from 10 to 2

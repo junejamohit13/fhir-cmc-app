@@ -1,48 +1,6 @@
-provider "aws" {
-  region = var.aws_region
-}
+# This file has been replaced by the setup-terraform-state.sh script
+# The S3 bucket and DynamoDB table should be created before terraform init
+# Run ./setup-terraform-state.sh to create these resources
 
-resource "aws_s3_bucket" "terraform_state" {
-  bucket = "fhir-cmc-terraform-state"
-
-  lifecycle {
-    prevent_destroy = true
-  }
-}
-
-resource "aws_s3_bucket_versioning" "terraform_state" {
-  bucket = aws_s3_bucket.terraform_state.id
-  
-  versioning_configuration {
-    status = "Enabled"
-  }
-}
-
-resource "aws_s3_bucket_server_side_encryption_configuration" "terraform_state" {
-  bucket = aws_s3_bucket.terraform_state.id
-
-  rule {
-    apply_server_side_encryption_by_default {
-      sse_algorithm = "AES256"
-    }
-  }
-}
-
-resource "aws_s3_bucket_public_access_block" "terraform_state" {
-  bucket                  = aws_s3_bucket.terraform_state.id
-  block_public_acls       = true
-  block_public_policy     = true
-  ignore_public_acls      = true
-  restrict_public_buckets = true
-}
-
-resource "aws_dynamodb_table" "terraform_locks" {
-  name         = "fhir-cmc-terraform-locks"
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "LockID"
-
-  attribute {
-    name = "LockID"
-    type = "S"
-  }
-}
+# S3 bucket: fhir-cmc-terraform-state-2
+# DynamoDB table: fhir-cmc-terraform-locks

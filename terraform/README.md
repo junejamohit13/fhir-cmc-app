@@ -19,20 +19,30 @@ Each environment (sponsor, cro, regulator) is completely isolated with its own V
 1. AWS Account
 2. AWS CLI configured with appropriate credentials
 3. Terraform (version >= 1.0.0)
-4. Domain name and ACM certificate (for HTTPS)
+4. Domain name and ACM certificate (for HTTPS) or use AWS default domains
 5. Docker images published to ECR (for frontend and backend applications)
 
 ## Getting Started
 
-1. First, set up the Terraform state management:
+### Important: Setup S3 and DynamoDB first
+
+The S3 bucket and DynamoDB table for Terraform state must be created **before** running Terraform:
 
 ```bash
 cd terraform
-terraform init
-terraform apply -target=aws_s3_bucket.terraform_state -target=aws_dynamodb_table.terraform_locks
+chmod +x setup-terraform-state.sh
+./setup-terraform-state.sh
 ```
 
-2. Create environment-specific variable files:
+This will create:
+- S3 bucket: `fhir-cmc-terraform-state-2`
+- DynamoDB table: `fhir-cmc-terraform-locks`
+
+**Do not** try to manage these resources with Terraform itself, as this creates a circular dependency.
+
+### Deploy environment
+
+1. Create environment-specific variable files:
 
 ```bash
 cd environments/sponsor
@@ -40,7 +50,7 @@ cp terraform.tfvars.example terraform.tfvars
 # Edit terraform.tfvars with your specific values
 ```
 
-3. Deploy the sponsor environment:
+2. Deploy the sponsor environment:
 
 ```bash
 terraform init
@@ -48,23 +58,7 @@ terraform plan
 terraform apply
 ```
 
-4. Repeat for CRO and regulator environments:
-
-```bash
-cd ../cro
-cp terraform.tfvars.example terraform.tfvars
-# Edit terraform.tfvars
-terraform init
-terraform plan
-terraform apply
-
-cd ../regulator
-cp terraform.tfvars.example terraform.tfvars
-# Edit terraform.tfvars
-terraform init
-terraform plan
-terraform apply
-```
+3. Repeat for CRO and regulator environments if needed.
 
 ## Environment Structure
 
@@ -87,13 +81,21 @@ export TF_VAR_db_username="admin"
 export TF_VAR_db_password="your-secure-password"
 ```
 
-## Custom Domain Names
+## Using AWS Default Domains vs Custom Domains
 
-To use custom domain names, you need to:
-
+### Custom Domains (recommended for production)
 1. Create ACM certificates for your domains
-2. Update the `domain_name` variable for each environment
+2. Update the `domain_name` variable for each environment 
 3. Set `create_route53_zone` to `true` if you need to create new hosted zones
+
+### AWS Default Domains (simpler for testing)
+1. Update your `terraform.tfvars` file:
+   - Set `create_route53_zone = false`
+2. Comment out or modify the Route53 resources in `main.tf`
+3. After deployment, use the AWS-provided domain names for your services:
+   - ALB URL: `your-alb-name.region.elb.amazonaws.com`
+
+Note: When using AWS default domains, you'll need to update the CORS settings and environment variables for services to communicate properly.
 
 ## Cleanup
 
@@ -102,17 +104,8 @@ To destroy the infrastructure:
 ```bash
 cd terraform/environments/sponsor
 terraform destroy
-
-cd ../cro
-terraform destroy
-
-cd ../regulator
-terraform destroy
 ```
 
-Finally, destroy the state management resources:
+Repeat for other environments if needed.
 
-```bash
-cd ../../
-terraform destroy -target=aws_s3_bucket.terraform_state -target=aws_dynamodb_table.terraform_locks
-```
+Note: The S3 bucket and DynamoDB table for state management must be removed manually after all environments are destroyed.
