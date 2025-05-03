@@ -3,10 +3,11 @@ output "vpc_id" {
   value       = module.network.vpc_id
 }
 
-output "alb_dns_name" {
-  description = "DNS name of the Application Load Balancer"
-  value       = module.network.alb_dns_name
-}
+# This output is now defined in main.tf
+# output "alb_dns_name" {
+#   description = "DNS name of the Application Load Balancer"
+#   value       = module.network.alb_dns_name
+# }
 
 output "database_endpoint" {
   description = "Endpoint of the RDS Aurora cluster"

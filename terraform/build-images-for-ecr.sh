@@ -1,5 +1,5 @@
 #!/bin/bash
-# Script to build and push Docker images to Amazon ECR
+# Script to build and push Docker images to Amazon ECR with platform specification
 
 set -e
 
@@ -60,9 +60,9 @@ build_and_push() {
     
     cd "$dir"
     
-    # Build the image
-    echo "Building Docker image..."
-    docker build -t $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$repo:$TAG .
+    # Build the image with platform specification for Linux/AMD64
+    echo "Building Docker image for linux/amd64 platform..."
+    docker buildx build --platform linux/amd64 -t $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$repo:$TAG .
     docker tag $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$repo:$TAG $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$repo:latest
     
     # Push the image

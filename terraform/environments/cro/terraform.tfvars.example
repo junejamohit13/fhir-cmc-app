@@ -4,6 +4,8 @@ environment      = "cro"
 vpc_cidr         = "10.0.0.0/16"
 availability_zones = ["us-east-1a", "us-east-1b", "us-east-1c"]
 domain_name      = "cro.example.com"
+# Dedicated FHIR server domain - uncomment and set value to use a dedicated domain for FHIR
+fhir_domain_name = "cro-fhir.example.com"
 create_route53_zone = false
 
 # Database

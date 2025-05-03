@@ -63,6 +63,7 @@ module "ecs" {
   aws_region                  = var.aws_region
   aws_account_id              = data.aws_caller_identity.current.account_id
   domain_name                 = var.domain_name
+  fhir_domain_name             = var.fhir_domain_name
   private_subnet_ids          = module.network.private_subnet_ids
   ecs_security_group_id       = module.network.ecs_security_group_id
   frontend_target_group_arn   = module.network.frontend_target_group_arn
@@ -114,6 +115,20 @@ data "aws_route53_zone" "selected" {
 resource "aws_route53_record" "app" {
   zone_id = data.aws_route53_zone.selected.zone_id
   name    = var.domain_name
+  type    = "A"
+
+  alias {
+    name                   = module.network.alb_dns_name
+    zone_id                = module.network.alb_zone_id
+    evaluate_target_health = true
+  }
+}
+
+# Create DNS record for FHIR-specific subdomain
+resource "aws_route53_record" "fhir" {
+  count   = var.fhir_domain_name != "" ? 1 : 0
+  zone_id = data.aws_route53_zone.selected.zone_id
+  name    = var.fhir_domain_name
   type    = "A"
 
   alias {

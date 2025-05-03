@@ -330,23 +330,42 @@ resource "aws_lb_target_group" "fhir" {
   }
 }
 
+locals {
+  use_https = var.certificate_arn != ""
+}
+
+# HTTP listener - either redirects to HTTPS if cert provided or forwards directly
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.main.arn
   port              = 80
   protocol          = "HTTP"
 
   default_action {
-    type = "redirect"
-
-    redirect {
-      port        = "443"
-      protocol    = "HTTPS"
-      status_code = "HTTP_301"
+    type = local.use_https ? "redirect" : "forward"
+    
+    dynamic "redirect" {
+      for_each = local.use_https ? [1] : []
+      content {
+        port        = "443"
+        protocol    = "HTTPS"
+        status_code = "HTTP_301"
+      }
+    }
+    
+    dynamic "forward" {
+      for_each = local.use_https ? [] : [1]
+      content {
+        target_group {
+          arn = aws_lb_target_group.frontend.arn
+        }
+      }
     }
   }
 }
 
+# HTTPS listener - only created if certificate is provided
 resource "aws_lb_listener" "https" {
+  count             = local.use_https ? 1 : 0
   load_balancer_arn = aws_lb.main.arn
   port              = 443
   protocol          = "HTTPS"
@@ -359,8 +378,10 @@ resource "aws_lb_listener" "https" {
   }
 }
 
-resource "aws_lb_listener_rule" "api" {
-  listener_arn = aws_lb_listener.https.arn
+# API rules - created for appropriate listeners
+resource "aws_lb_listener_rule" "api_https" {
+  count        = local.use_https ? 1 : 0
+  listener_arn = aws_lb_listener.https[0].arn
   priority     = 100
 
   action {
@@ -375,8 +396,44 @@ resource "aws_lb_listener_rule" "api" {
   }
 }
 
-resource "aws_lb_listener_rule" "fhir" {
-  listener_arn = aws_lb_listener.https.arn
+resource "aws_lb_listener_rule" "api_http" {
+  count        = local.use_https ? 0 : 1
+  listener_arn = aws_lb_listener.http.arn
+  priority     = 100
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.backend.arn
+  }
+
+  condition {
+    path_pattern {
+      values = ["/api/*"]
+    }
+  }
+}
+
+# FHIR rules - created for appropriate listeners
+resource "aws_lb_listener_rule" "fhir_https" {
+  count        = local.use_https ? 1 : 0
+  listener_arn = aws_lb_listener.https[0].arn
+  priority     = 200
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.fhir.arn
+  }
+
+  condition {
+    path_pattern {
+      values = ["/fhir/*"]
+    }
+  }
+}
+
+resource "aws_lb_listener_rule" "fhir_http" {
+  count        = local.use_https ? 0 : 1
+  listener_arn = aws_lb_listener.http.arn
   priority     = 200
 
   action {

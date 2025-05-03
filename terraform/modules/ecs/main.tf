@@ -154,7 +154,7 @@ resource "aws_ecs_task_definition" "fhir" {
         },
         {
           name  = "HAPI_FHIR_SERVER_ADDRESS"
-          value = "https://${var.domain_name}/fhir"
+          value = var.fhir_domain_name != "" ? "https://${var.fhir_domain_name}/fhir" : "https://${var.domain_name}/fhir"
         }
       ]
       
@@ -265,7 +265,7 @@ resource "aws_ecs_task_definition" "backend" {
       environment = [
         {
           name  = "FHIR_SERVER_URL"
-          value = "https://${var.domain_name}/fhir"
+          value = var.fhir_domain_name != "" ? "https://${var.fhir_domain_name}/fhir" : "https://${var.domain_name}/fhir"
         },
         {
           name  = "COGNITO_REGION"

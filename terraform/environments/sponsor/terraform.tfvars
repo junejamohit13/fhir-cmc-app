@@ -5,8 +5,6 @@ vpc_cidr         = "10.0.0.0/16"
 availability_zones = ["us-east-1a", "us-east-1b"]
 # Using your existing domain and certificate
 domain_name      = "sponsor.cmc-fhir-demo.com"
-# Dedicated FHIR server domain - uncomment and set value to use a dedicated domain for FHIR
-fhir_domain_name = "sponsor-fhir.cmc-fhir-demo.com"
 # Set to false because you already created the Route53 zone manually
 create_route53_zone = false
 

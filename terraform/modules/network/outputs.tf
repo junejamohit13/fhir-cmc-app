@@ -70,5 +70,5 @@ output "fhir_target_group_arn" {
 
 output "https_listener_arn" {
   description = "ARN of the HTTPS listener"
-  value       = aws_lb_listener.https.arn
+  value       = local.use_https ? aws_lb_listener.https[0].arn : null
 }

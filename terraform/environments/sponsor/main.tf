@@ -3,6 +3,13 @@ provider "aws" {
 }
 
 terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.9"
+    }
+  }
+  
   backend "s3" {
     bucket         = "fhir-cmc-terraform-state-2"
     key            = "environments/sponsor/terraform.tfstate"
@@ -14,7 +21,15 @@ terraform {
 
 data "aws_caller_identity" "current" {}
 
+# Use a placeholder certificate ARN if domain_name is not provided
+locals {
+  use_certificate = var.domain_name != ""
+  certificate_arn = local.use_certificate ? try(data.aws_acm_certificate.domain[0].arn, "") : ""
+}
+
+# Only look up the certificate if domain name is provided
 data "aws_acm_certificate" "domain" {
+  count        = local.use_certificate ? 1 : 0
   domain      = var.domain_name
   statuses    = ["ISSUED"]
   most_recent = true
@@ -27,7 +42,7 @@ module "network" {
   environment        = var.environment
   vpc_cidr           = var.vpc_cidr
   availability_zones = var.availability_zones
-  certificate_arn    = data.aws_acm_certificate.domain.arn
+  certificate_arn    = local.certificate_arn
 }
 
 module "database" {
@@ -63,6 +78,7 @@ module "ecs" {
   aws_region                  = var.aws_region
   aws_account_id              = data.aws_caller_identity.current.account_id
   domain_name                 = var.domain_name
+  fhir_domain_name             = var.fhir_domain_name
   private_subnet_ids          = module.network.private_subnet_ids
   ecs_security_group_id       = module.network.ecs_security_group_id
   frontend_target_group_arn   = module.network.frontend_target_group_arn
@@ -100,19 +116,24 @@ module "ecs" {
   backend_max_count           = var.backend_max_count
 }
 
-# Create Route53 records
-resource "aws_route53_zone" "main" {
-  count = var.create_route53_zone ? 1 : 0
-  name  = var.domain_name
+# Get the parent domain by removing the subdomain
+locals {
+  # Extract the parent domain (e.g., "example.com" from "sub.example.com")
+  parent_domain = replace(var.domain_name, "/^[^.]+\\./", "")
+  
+  # Ensure the domain has a trailing dot as required by Route53
+  formatted_parent_domain = trimsuffix(local.parent_domain, ".") != "" ? "${trimsuffix(local.parent_domain, ".")}." : ""
 }
 
-data "aws_route53_zone" "selected" {
-  name         = var.domain_name
+# Get the existing Route53 zone
+data "aws_route53_zone" "existing" {
+  name         = local.formatted_parent_domain
   private_zone = false
 }
 
+# Create DNS record in the existing zone
 resource "aws_route53_record" "app" {
-  zone_id = data.aws_route53_zone.selected.zone_id
+  zone_id = data.aws_route53_zone.existing.zone_id
   name    = var.domain_name
   type    = "A"
 
@@ -121,4 +142,53 @@ resource "aws_route53_record" "app" {
     zone_id                = module.network.alb_zone_id
     evaluate_target_health = true
   }
+}
+
+# Create DNS record for FHIR-specific subdomain
+resource "aws_route53_record" "fhir" {
+  count   = var.fhir_domain_name != "" ? 1 : 0
+  zone_id = data.aws_route53_zone.existing.zone_id
+  name    = var.fhir_domain_name
+  type    = "A"
+
+  alias {
+    name                   = module.network.alb_dns_name
+    zone_id                = module.network.alb_zone_id
+    evaluate_target_health = true
+  }
+}
+
+# Useful outputs for verification
+output "alb_dns_name" {
+  value       = module.network.alb_dns_name
+  description = "The DNS name of the Application Load Balancer"
+}
+
+output "domain_name" {
+  value       = var.domain_name
+  description = "The domain name for the application"
+}
+
+output "route53_zone_name" {
+  value       = data.aws_route53_zone.existing.name
+  description = "The Route53 zone being used"
+}
+
+output "route53_record_created" {
+  value       = "Created A record: ${aws_route53_record.app.name} -> ${module.network.alb_dns_name}"
+  description = "The Route53 record that was created"
+}
+
+output "certificate_arn" {
+  value       = local.certificate_arn
+  description = "The ARN of the certificate being used"
+}
+
+output "endpoints" {
+  value = {
+    fhir_api     = "https://${var.domain_name}/fhir"
+    backend_api  = "https://${var.domain_name}/api"
+    frontend_app = "https://${var.domain_name}"
+  }
+  description = "Endpoints for accessing the application"
 }

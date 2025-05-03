@@ -1,9 +1,19 @@
 resource "aws_cognito_user_pool" "main" {
-  name                     = "${var.project}-${var.environment}-user-pool"
-  username_attributes      = ["email"]
-  auto_verify_attributes   = ["email"]
-  mfa_configuration        = "OFF"
-  deletion_protection      = var.environment == "prod" ? "ACTIVE" : "INACTIVE"
+  name                = "${var.project}-${var.environment}-user-pool"
+  username_attributes = ["email"]
+  
+  # For auto verification, we'll use the email_configuration block instead
+  email_configuration {
+    email_sending_account = "COGNITO_DEFAULT"
+  }
+  
+  # Auto-verify email through this setting
+  auto_verified_attributes =["email"]
+  
+  mfa_configuration   = "OFF"
+  
+  # Newer attribute, conditionally set it
+  deletion_protection = var.environment == "prod" ? "ACTIVE" : "INACTIVE"
 
   username_configuration {
     case_sensitive = false
@@ -80,30 +90,7 @@ resource "aws_cognito_user_pool_client" "frontend" {
   supported_identity_providers         = ["COGNITO"]
 }
 
-resource "aws_cognito_user_pool_client" "backend" {
-  name                                 = "${var.project}-${var.environment}-backend-client"
-  user_pool_id                         = aws_cognito_user_pool.main.id
-  generate_secret                      = true
-  refresh_token_validity               = 30
-  prevent_user_existence_errors        = "ENABLED"
-  allowed_oauth_flows_user_pool_client = true
-  allowed_oauth_flows                  = ["client_credentials"]
-  allowed_oauth_scopes                 = ["${var.project}/${var.environment}/backend-api.read", "${var.project}/${var.environment}/backend-api.write"]
-  supported_identity_providers         = ["COGNITO"]
-}
-
-resource "aws_cognito_user_pool_client" "fhir" {
-  name                                 = "${var.project}-${var.environment}-fhir-client"
-  user_pool_id                         = aws_cognito_user_pool.main.id
-  generate_secret                      = true
-  refresh_token_validity               = 30
-  prevent_user_existence_errors        = "ENABLED"
-  allowed_oauth_flows_user_pool_client = true
-  allowed_oauth_flows                  = ["client_credentials"]
-  allowed_oauth_scopes                 = ["${var.project}/${var.environment}/fhir-api.read", "${var.project}/${var.environment}/fhir-api.write"]
-  supported_identity_providers         = ["COGNITO"]
-}
-
+# Create resource servers first so scopes exist before client creation
 resource "aws_cognito_resource_server" "backend" {
   identifier   = "${var.project}/${var.environment}/backend-api"
   name         = "${var.project}-${var.environment}-backend-api"
@@ -134,6 +121,43 @@ resource "aws_cognito_resource_server" "fhir" {
     scope_name        = "write"
     scope_description = "Write access to FHIR API"
   }
+}
+
+# Now create clients with valid scopes
+resource "aws_cognito_user_pool_client" "backend" {
+  name                                 = "${var.project}-${var.environment}-backend-client"
+  user_pool_id                         = aws_cognito_user_pool.main.id
+  generate_secret                      = true
+  refresh_token_validity               = 30
+  prevent_user_existence_errors        = "ENABLED"
+  allowed_oauth_flows_user_pool_client = true
+  allowed_oauth_flows                  = ["client_credentials"]
+  allowed_oauth_scopes                 = [
+    "${aws_cognito_resource_server.backend.identifier}/read", 
+    "${aws_cognito_resource_server.backend.identifier}/write"
+  ]
+  supported_identity_providers         = ["COGNITO"]
+  
+  # Ensure the resource server is created first
+  depends_on = [aws_cognito_resource_server.backend]
+}
+
+resource "aws_cognito_user_pool_client" "fhir" {
+  name                                 = "${var.project}-${var.environment}-fhir-client"
+  user_pool_id                         = aws_cognito_user_pool.main.id
+  generate_secret                      = true
+  refresh_token_validity               = 30
+  prevent_user_existence_errors        = "ENABLED"
+  allowed_oauth_flows_user_pool_client = true
+  allowed_oauth_flows                  = ["client_credentials"]
+  allowed_oauth_scopes                 = [
+    "${aws_cognito_resource_server.fhir.identifier}/read", 
+    "${aws_cognito_resource_server.fhir.identifier}/write"
+  ]
+  supported_identity_providers         = ["COGNITO"]
+  
+  # Ensure the resource server is created first
+  depends_on = [aws_cognito_resource_server.fhir]
 }
 
 resource "aws_cognito_user_pool_domain" "main" {

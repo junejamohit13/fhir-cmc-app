@@ -19,6 +19,7 @@ variable "availability_zones" {
 }
 
 variable "certificate_arn" {
-  description = "ARN of the SSL certificate for HTTPS"
+  description = "ARN of the SSL certificate for HTTPS (optional)"
   type        = string
+  default     = ""
 }

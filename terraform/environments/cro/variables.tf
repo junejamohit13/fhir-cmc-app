@@ -33,6 +33,12 @@ variable "domain_name" {
   type        = string
 }
 
+variable "fhir_domain_name" {
+  description = "Domain name for the FHIR server (e.g., cro-fhir.example.com)"
+  type        = string
+  default     = ""
+}
+
 variable "create_route53_zone" {
   description = "Whether to create a Route53 zone"
   type        = bool

@@ -33,6 +33,12 @@ variable "domain_name" {
   type        = string
 }
 
+variable "fhir_domain_name" {
+  description = "Domain name for the FHIR server"
+  type        = string
+  default     = ""
+}
+
 variable "db_endpoint" {
   description = "Endpoint of the RDS cluster"
   type        = string
