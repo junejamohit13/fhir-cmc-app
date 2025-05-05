@@ -20,6 +20,15 @@ data "aws_acm_certificate" "domain" {
   most_recent = true
 }
 
+module "cognito" {
+  source = "../../modules/cognito"
+
+  project     = var.project
+  environment = var.environment
+  aws_region  = var.aws_region
+  domain_name = var.domain_name
+}
+
 module "network" {
   source = "../../modules/network"
 
@@ -28,6 +37,14 @@ module "network" {
   vpc_cidr           = var.vpc_cidr
   availability_zones = var.availability_zones
   certificate_arn    = data.aws_acm_certificate.domain.arn
+  
+  # Cognito parameters for ALB authentication
+  cognito_user_pool_id            = module.cognito.user_pool_id
+  cognito_user_pool_client_id     = module.cognito.frontend_client_id
+  cognito_user_pool_client_secret = module.cognito.frontend_client_secret
+  cognito_user_pool_domain        = module.cognito.user_pool_domain
+
+  depends_on = [module.cognito]
 }
 
 module "database" {
@@ -44,15 +61,8 @@ module "database" {
   db_instance_count    = var.db_instance_count
   db_min_capacity      = var.db_min_capacity
   db_max_capacity      = var.db_max_capacity
-}
 
-module "cognito" {
-  source = "../../modules/cognito"
-
-  project     = var.project
-  environment = var.environment
-  aws_region  = var.aws_region
-  domain_name = var.domain_name
+  depends_on = [module.network]
 }
 
 module "ecs" {
@@ -63,6 +73,7 @@ module "ecs" {
   aws_region                  = var.aws_region
   aws_account_id              = data.aws_caller_identity.current.account_id
   domain_name                 = var.domain_name
+  fhir_domain_name            = var.fhir_domain_name
   private_subnet_ids          = module.network.private_subnet_ids
   ecs_security_group_id       = module.network.ecs_security_group_id
   frontend_target_group_arn   = module.network.frontend_target_group_arn
@@ -98,6 +109,17 @@ module "ecs" {
   frontend_max_count          = var.frontend_max_count
   backend_min_count           = var.backend_min_count
   backend_max_count           = var.backend_max_count
+
+  depends_on = [module.network, module.database, module.cognito]
+}
+
+# Get the parent domain by removing the subdomain
+locals {
+  # Extract the parent domain (e.g., "example.com" from "sub.example.com")
+  parent_domain = replace(var.domain_name, "/^[^.]+\\./", "")
+  
+  # Ensure the domain has a trailing dot as required by Route53
+  formatted_parent_domain = trimsuffix(local.parent_domain, ".") != "" ? "${trimsuffix(local.parent_domain, ".")}." : ""
 }
 
 # Create Route53 records
@@ -107,7 +129,7 @@ resource "aws_route53_zone" "main" {
 }
 
 data "aws_route53_zone" "selected" {
-  name         = var.domain_name
+  name         = local.formatted_parent_domain
   private_zone = false
 }
 
@@ -121,4 +143,48 @@ resource "aws_route53_record" "app" {
     zone_id                = module.network.alb_zone_id
     evaluate_target_health = true
   }
+}
+
+# Create DNS record for FHIR-specific subdomain
+resource "aws_route53_record" "fhir" {
+  count   = var.fhir_domain_name != "" ? 1 : 0
+  zone_id = data.aws_route53_zone.selected.zone_id
+  name    = var.fhir_domain_name
+  type    = "A"
+
+  alias {
+    name                   = module.network.alb_dns_name
+    zone_id                = module.network.alb_zone_id
+    evaluate_target_health = true
+  }
+}
+
+# Useful outputs for verification
+output "alb_dns_name" {
+  value       = module.network.alb_dns_name
+  description = "The DNS name of the Application Load Balancer"
+}
+
+output "domain_name" {
+  value       = var.domain_name
+  description = "The domain name for the application"
+}
+
+output "route53_zone_name" {
+  value       = data.aws_route53_zone.selected.name
+  description = "The Route53 zone being used"
+}
+
+output "route53_record_created" {
+  value       = "Created A record: ${aws_route53_record.app.name} -> ${module.network.alb_dns_name}"
+  description = "The Route53 record that was created"
+}
+
+output "endpoints" {
+  value = {
+    fhir_api     = var.fhir_domain_name != "" ? "https://${var.fhir_domain_name}/fhir" : "https://${var.domain_name}/fhir"
+    backend_api  = "https://${var.domain_name}/api"
+    frontend_app = "https://${var.domain_name}"
+  }
+  description = "Endpoints for accessing the application"
 }

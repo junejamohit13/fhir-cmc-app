@@ -5,6 +5,12 @@ vpc_cidr         = "10.0.0.0/16"
 availability_zones = ["us-east-1a", "us-east-1b"]
 # Using your existing domain and certificate
 domain_name      = "sponsor.cmc-fhir-demo.com"
+# Dedicated FHIR server domain
+fhir_domain_name = "sponsor-fhir.cmc-fhir-demo.com"
+# API FHIR domain with API key authentication for service-to-service calls
+api_fhir_domain_name = "api.sponsor-fhir.cmc-fhir-demo.com"
+# API key for authenticating with API Gateway
+api_gateway_key = "dMSiK0sO9g2KEmXVCy5Ai6xffpbZA9xZ5dvRwXdf"
 # Set to false because you already created the Route53 zone manually
 create_route53_zone = false
 

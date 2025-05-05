@@ -1,7 +1,10 @@
 import axios from 'axios';
 
-// Use absolute URL for local development but keep original for Docker
-const BASE_URL = process.env.NODE_ENV === 'development' ? 'http://localhost:8002' : 'http://localhost:8002';
+// Use environment variables or fallback to local development URLs
+const BASE_URL = process.env.REACT_APP_API_URL || 
+                (process.env.NODE_ENV === 'development' ? 'http://localhost:8002' : '/api');
+
+console.log('API Service initialized with BASE_URL:', BASE_URL);
 
 // Add timeout to prevent long waits and ensure no caching
 const api = axios.create({

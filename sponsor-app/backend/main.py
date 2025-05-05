@@ -6,7 +6,13 @@ import requests
 import os
 import json
 from datetime import datetime
-app = FastAPI(title="Protocol Management API")
+import time
+
+app = FastAPI(title="Protocol Management API", root_path="/api")
+
+# JWT token globals
+access_token = None
+token_expiry = 0
 
 # Configure CORS
 app.add_middleware(
@@ -21,6 +27,85 @@ app.add_middleware(
 FHIR_SERVER_URL = os.environ.get("FHIR_SERVER_URL", "http://localhost:8082/fhir")
 # Port that this server is running on (for self-references)
 SPONSOR_SERVER_URL = os.environ.get("SPONSOR_SERVER_URL", "http://localhost:8002")
+
+# API Key for API Gateway Authentication
+API_GATEWAY_KEY = os.environ.get("API_GATEWAY_KEY", "")
+
+# Cognito Configuration
+COGNITO_REGION = os.environ.get("COGNITO_REGION", "us-east-1")
+COGNITO_USER_POOL_ID = os.environ.get("COGNITO_USER_POOL_ID", "")
+COGNITO_APP_CLIENT_ID = os.environ.get("COGNITO_APP_CLIENT_ID", "")
+COGNITO_APP_CLIENT_SECRET = os.environ.get("COGNITO_APP_CLIENT_SECRET", "")
+
+def get_access_token():
+    """
+    Get a JWT token from Cognito for machine-to-machine communication.
+    Uses client_credentials OAuth2 flow.
+    """
+    global access_token, token_expiry
+    
+    # Check if we have a valid token already
+    current_time = int(time.time())
+    if access_token and token_expiry > current_time + 60:  # 60 seconds buffer
+        return access_token
+    
+    # We need to get a new token
+    token_url = f"https://cognito-idp.{COGNITO_REGION}.amazonaws.com/{COGNITO_USER_POOL_ID}/oauth2/token"
+    
+    headers = {
+        "Content-Type": "application/x-www-form-urlencoded"
+    }
+    
+    payload = {
+        "grant_type": "client_credentials",
+        "client_id": COGNITO_APP_CLIENT_ID,
+        "client_secret": COGNITO_APP_CLIENT_SECRET,
+        "scope": "fhir/read fhir/write"  # Adjust scopes based on your Cognito setup
+    }
+    
+    try:
+        print(f"Getting new access token from: {token_url}")
+        response = requests.post(token_url, headers=headers, data=payload)
+        response.raise_for_status()
+        
+        token_data = response.json()
+        access_token = token_data.get("access_token")
+        expires_in = token_data.get("expires_in", 3600)  # Default to 1 hour
+        token_expiry = current_time + expires_in
+        
+        print(f"Successfully obtained new access token, expires in {expires_in} seconds")
+        return access_token
+    except Exception as e:
+        print(f"Error getting access token: {str(e)}")
+        if hasattr(e, 'response') and e.response:
+            print(f"Response status: {e.response.status_code}")
+            print(f"Response text: {e.response.text}")
+        return None
+
+def get_auth_headers(content_type="application/fhir+json"):
+    """
+    Get headers for FHIR API requests, including authorization if needed
+    """
+    headers = {"Accept": content_type}
+    
+    # Add authorization header based on URL pattern
+    if "api.sponsor" in FHIR_SERVER_URL:
+        # Use API key authentication for api.sponsor domains
+        if API_GATEWAY_KEY:
+            headers["x-api-key"] = API_GATEWAY_KEY
+            print(f"Adding API key authentication to request headers for {FHIR_SERVER_URL}")
+        else:
+            print(f"Warning: No API key available for API request to {FHIR_SERVER_URL}")
+    elif "api." in FHIR_SERVER_URL:
+        # Use JWT authentication for other api domains
+        token = get_access_token()
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+            print(f"Adding JWT authentication token to request headers for {FHIR_SERVER_URL}")
+        else:
+            print(f"Warning: No token available for API request to {FHIR_SERVER_URL}")
+    
+    return headers
 
 class PlanDefinitionCreate(BaseModel):
     title: str
@@ -97,33 +182,111 @@ class TestResultCreate(BaseModel):
 def read_root():
     return {"message": "Protocol Management API is running"}
 
+@app.get("/health")
+@app.get("/api/health")  # Add the /api/health endpoint that the ALB health check uses
+def health_check():
+    # Log FHIR server URL for debugging
+    print(f"HEALTH CHECK - FHIR_SERVER_URL is configured as: {FHIR_SERVER_URL}")
+    
+    # Try to ping the FHIR server and report its status
+    try:
+        response = requests.get(
+            f"{FHIR_SERVER_URL}/metadata",
+            headers={"Accept": "application/fhir+json"},
+            timeout=5
+        )
+        fhir_server_status = f"Reachable (Status: {response.status_code})"
+    except requests.RequestException as e:
+        fhir_server_status = f"Not reachable: {str(e)}"
+    
+    return {
+        "status": "ok",
+        "fhir_server": {
+            "url": FHIR_SERVER_URL,
+            "status": fhir_server_status
+        }
+    }
+
 @app.get("/protocols")
 async def get_protocols():
     """Get all protocols (PlanDefinition resources)"""
     try:
-        response = requests.get(
-            f"{FHIR_SERVER_URL}/PlanDefinition",
-            headers={"Accept": "application/fhir+json"}
-        )
+        fhir_url = f"{FHIR_SERVER_URL}/PlanDefinition"
+        print(f"GET PROTOCOLS - Fetching from FHIR Server URL: {fhir_url}")
+        
+        # Get authenticated headers
+        headers = get_auth_headers()
+        
+        # Check if we need authentication and if it's present
+        if "api.sponsor" in FHIR_SERVER_URL and "x-api-key" not in headers:
+            error_message = "Failed to obtain API key for API request"
+            print(f"GET PROTOCOLS - ERROR: {error_message}")
+            raise HTTPException(status_code=500, detail=error_message)
+        elif "api." in FHIR_SERVER_URL and "api.sponsor" not in FHIR_SERVER_URL and "Authorization" not in headers:
+            error_message = "Failed to obtain access token for API request"
+            print(f"GET PROTOCOLS - ERROR: {error_message}")
+            raise HTTPException(status_code=500, detail=error_message)
+        
+        response = requests.get(fhir_url, headers=headers)
         response.raise_for_status()
-        return response.json()
+        
+        response_data = response.json()
+        total_resources = response_data.get("total", 0)
+        entry_count = len(response_data.get("entry", []))
+        print(f"GET PROTOCOLS - Response status: {response.status_code}, Total resources: {total_resources}, Entries returned: {entry_count}")
+        
+        return response_data
     except requests.RequestException as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch protocols: {str(e)}")
+        error_message = f"Failed to fetch protocols: {str(e)}"
+        print(f"GET PROTOCOLS - ERROR: {error_message}")
+        if hasattr(e, 'response') and e.response:
+            print(f"Response status: {e.response.status_code}")
+            print(f"Response text: {e.response.text}")
+        raise HTTPException(status_code=500, detail=error_message)
 
 @app.get("/protocols/{protocol_id}")
 async def get_protocol(protocol_id: str):
     """Get a specific protocol by ID"""
     try:
-        response = requests.get(
-            f"{FHIR_SERVER_URL}/PlanDefinition/{protocol_id}",
-            headers={"Accept": "application/fhir+json"}
-        )
+        fhir_url = f"{FHIR_SERVER_URL}/PlanDefinition/{protocol_id}"
+        print(f"GET PROTOCOL - Fetching protocol ID {protocol_id} from FHIR Server URL: {fhir_url}")
+        
+        # Get authenticated headers
+        headers = get_auth_headers()
+        
+        # Check if we need authentication and if it's present
+        if "api.sponsor" in FHIR_SERVER_URL and "x-api-key" not in headers:
+            error_message = "Failed to obtain API key for API request"
+            print(f"GET PROTOCOL - ERROR: {error_message}")
+            raise HTTPException(status_code=500, detail=error_message)
+        elif "api." in FHIR_SERVER_URL and "api.sponsor" not in FHIR_SERVER_URL and "Authorization" not in headers:
+            error_message = "Failed to obtain access token for API request"
+            print(f"GET PROTOCOL - ERROR: {error_message}")
+            raise HTTPException(status_code=500, detail=error_message)
+        
+        response = requests.get(fhir_url, headers=headers)
         response.raise_for_status()
-        return response.json()
+        
+        protocol_data = response.json()
+        print(f"GET PROTOCOL - Success! Status: {response.status_code}, Protocol ID: {protocol_id}")
+        
+        # Log some key details from the protocol
+        title = protocol_data.get("title", "No Title")
+        resource_type = protocol_data.get("resourceType", "Unknown")
+        print(f"GET PROTOCOL - Retrieved {resource_type}: '{title}'")
+        
+        return protocol_data
     except requests.RequestException as e:
         if e.response and e.response.status_code == 404:
+            print(f"GET PROTOCOL - ERROR: Protocol with ID {protocol_id} not found")
             raise HTTPException(status_code=404, detail=f"Protocol with ID {protocol_id} not found")
-        raise HTTPException(status_code=500, detail=f"Failed to fetch protocol: {str(e)}")
+        
+        error_message = f"Failed to fetch protocol: {str(e)}"
+        print(f"GET PROTOCOL - ERROR: {error_message}")
+        if hasattr(e, 'response') and e.response:
+            print(f"Response status: {e.response.status_code}")
+            print(f"Response text: {e.response.text}")
+        raise HTTPException(status_code=500, detail=error_message)
 
 @app.post("/protocols")
 async def create_protocol(protocol: PlanDefinitionCreate):
@@ -196,9 +359,12 @@ async def create_protocol(protocol: PlanDefinitionCreate):
             # Remove stability_tests from top level
             if "stability_tests" in protocol_data:
                 del protocol_data["stability_tests"]
-        print(f"protocol_data is:{protocol_data}")
+        fhir_url = f"{FHIR_SERVER_URL}/PlanDefinition"
+        print(f"CREATE PROTOCOL - Posting to FHIR Server URL: {fhir_url}")
+        print(f"CREATE PROTOCOL - Protocol data: {protocol_data}")
+        
         response = requests.post(
-            f"{FHIR_SERVER_URL}/PlanDefinition",
+            fhir_url,
             json=protocol_data,
             headers={
                 "Content-Type": "application/fhir+json",
@@ -206,7 +372,12 @@ async def create_protocol(protocol: PlanDefinitionCreate):
             }
         )
         response.raise_for_status()
-        return response.json()
+        
+        response_data = response.json()
+        protocol_id = response_data.get("id", "unknown")
+        print(f"CREATE PROTOCOL - Success! Status: {response.status_code}, New protocol ID: {protocol_id}")
+        
+        return response_data
     except requests.RequestException as e:
         error_message = str(e)
         if hasattr(e, 'response') and e.response:

@@ -72,3 +72,8 @@ output "https_listener_arn" {
   description = "ARN of the HTTPS listener"
   value       = local.use_https ? aws_lb_listener.https[0].arn : null
 }
+
+output "api_https_listener_arn" {
+  description = "ARN of the API HTTPS listener on port 8443"
+  value       = local.use_https ? aws_lb_listener.api_https[0].arn : null
+}

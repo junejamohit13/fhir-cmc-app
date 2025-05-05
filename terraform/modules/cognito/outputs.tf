@@ -45,14 +45,20 @@ output "identity_pool_id" {
   value       = aws_cognito_identity_pool.main.id
 }
 
-output "cognito_domain" {
-  description = "Domain of the Cognito User Pool"
+output "user_pool_domain" {
+  description = "Domain prefix of the Cognito User Pool"
   value       = aws_cognito_user_pool_domain.main.domain
 }
 
-output "cognito_domain_fqdn" {
+output "user_pool_domain_fqdn" {
   description = "Fully qualified domain name of the Cognito User Pool domain"
   value       = "${aws_cognito_user_pool_domain.main.domain}.auth.${var.aws_region}.amazoncognito.com"
+}
+
+output "frontend_client_secret" {
+  description = "Secret of the frontend client"
+  value       = aws_cognito_user_pool_client.frontend.client_secret
+  sensitive   = true
 }
 
 output "authenticated_role_arn" {

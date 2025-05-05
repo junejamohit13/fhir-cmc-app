@@ -20,14 +20,29 @@ data "aws_acm_certificate" "domain" {
   most_recent = true
 }
 
+module "cognito" {
+  source = "../../modules/cognito"
+
+  project     = var.project
+  environment = var.environment
+  aws_region  = var.aws_region
+  domain_name = var.domain_name
+}
+
 module "network" {
   source = "../../modules/network"
 
-  project            = var.project
-  environment        = var.environment
-  vpc_cidr           = var.vpc_cidr
-  availability_zones = var.availability_zones
-  certificate_arn    = data.aws_acm_certificate.domain.arn
+  project                      = var.project
+  environment                  = var.environment
+  vpc_cidr                     = var.vpc_cidr
+  availability_zones           = var.availability_zones
+  certificate_arn              = data.aws_acm_certificate.domain.arn
+  cognito_user_pool_id         = module.cognito.user_pool_id
+  cognito_user_pool_client_id  = module.cognito.frontend_client_id
+  cognito_user_pool_client_secret = module.cognito.frontend_client_secret
+  cognito_user_pool_domain     = module.cognito.user_pool_domain
+
+  depends_on = [module.cognito]
 }
 
 module "database" {
@@ -44,15 +59,8 @@ module "database" {
   db_instance_count    = var.db_instance_count
   db_min_capacity      = var.db_min_capacity
   db_max_capacity      = var.db_max_capacity
-}
 
-module "cognito" {
-  source = "../../modules/cognito"
-
-  project     = var.project
-  environment = var.environment
-  aws_region  = var.aws_region
-  domain_name = var.domain_name
+  depends_on = [module.network]
 }
 
 module "ecs" {
@@ -99,6 +107,8 @@ module "ecs" {
   frontend_max_count          = var.frontend_max_count
   backend_min_count           = var.backend_min_count
   backend_max_count           = var.backend_max_count
+
+  depends_on = [module.network, module.database, module.cognito]
 }
 
 # Create Route53 records

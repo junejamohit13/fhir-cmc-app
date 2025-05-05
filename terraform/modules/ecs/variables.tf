@@ -39,6 +39,12 @@ variable "fhir_domain_name" {
   default     = ""
 }
 
+variable "api_fhir_domain_name" {
+  description = "Domain name for the API FHIR server (service-to-service communication)"
+  type        = string
+  default     = ""
+}
+
 variable "db_endpoint" {
   description = "Endpoint of the RDS cluster"
   type        = string
@@ -112,6 +118,13 @@ variable "cognito_fhir_client_secret" {
   description = "Secret of the Cognito FHIR client"
   type        = string
   sensitive   = true
+}
+
+variable "api_gateway_key" {
+  description = "API key for API Gateway authentication"
+  type        = string
+  sensitive   = true
+  default     = ""
 }
 
 variable "fhir_image" {

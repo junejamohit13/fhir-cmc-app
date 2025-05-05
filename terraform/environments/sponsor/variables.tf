@@ -39,6 +39,12 @@ variable "fhir_domain_name" {
   default     = ""
 }
 
+variable "api_fhir_domain_name" {
+  description = "Domain name for the API FHIR server without authentication (e.g., api.sponsor-fhir.example.com)"
+  type        = string
+  default     = ""
+}
+
 variable "create_route53_zone" {
   description = "Whether to create a Route53 zone"
   type        = bool
@@ -193,4 +199,11 @@ variable "backend_max_count" {
   description = "Maximum number of backend tasks"
   type        = number
   default     = 10
+}
+
+variable "api_gateway_key" {
+  description = "API key for API Gateway authentication for api.sponsor domains"
+  type        = string
+  sensitive   = true
+  default     = ""
 }

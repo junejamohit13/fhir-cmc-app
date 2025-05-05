@@ -25,7 +25,7 @@ output "cognito_frontend_client_id" {
 
 output "cognito_domain" {
   description = "Domain of the Cognito User Pool"
-  value       = module.cognito.cognito_domain_fqdn
+  value       = module.cognito.user_pool_domain_fqdn
 }
 
 output "ecs_cluster_name" {

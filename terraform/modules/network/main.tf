@@ -1,3 +1,7 @@
+# Data sources for AWS region and caller identity
+data "aws_region" "current" {}
+data "aws_caller_identity" "current" {}
+
 resource "aws_vpc" "main" {
   cidr_block           = var.vpc_cidr
   enable_dns_support   = true
@@ -168,6 +172,13 @@ resource "aws_security_group" "alb" {
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
+  
+  ingress {
+    from_port   = 8443
+    to_port     = 8443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
 
   egress {
     from_port   = 0
@@ -262,7 +273,7 @@ resource "aws_lb_target_group" "frontend" {
   health_check {
     enabled             = true
     interval            = 30
-    path                = "/"
+    path                = "/health"
     port                = "traffic-port"
     healthy_threshold   = 3
     unhealthy_threshold = 3
@@ -288,7 +299,7 @@ resource "aws_lb_target_group" "backend" {
   health_check {
     enabled             = true
     interval            = 30
-    path                = "/health"
+    path                = "/api/health"
     port                = "traffic-port"
     healthy_threshold   = 3
     unhealthy_threshold = 3
@@ -372,9 +383,63 @@ resource "aws_lb_listener" "https" {
   ssl_policy        = "ELBSecurityPolicy-2016-08"
   certificate_arn   = var.certificate_arn
 
+  # Default is to authenticate then forward to frontend
+  default_action {
+    type = "authenticate-cognito"
+    authenticate_cognito {
+      user_pool_arn       = var.cognito_user_pool_id != "" ? "arn:aws:cognito-idp:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:userpool/${var.cognito_user_pool_id}" : ""
+      user_pool_client_id = var.cognito_user_pool_client_id
+      user_pool_domain    = var.cognito_user_pool_domain
+      session_cookie_name = "${var.project}-${var.environment}-session"
+      session_timeout     = 86400
+      scope               = "openid profile email"
+      on_unauthenticated_request = "authenticate"
+    }
+
+    order = 1
+  }
+
+  # After authentication, forward to the frontend target group
   default_action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.frontend.arn
+    order            = 2
+  }
+}
+
+# OAuth2 callback rule (exempt from auth)
+resource "aws_lb_listener_rule" "oauth_callback_https" {
+  count        = local.use_https ? 1 : 0
+  listener_arn = aws_lb_listener.https[0].arn
+  priority     = 5  # High priority (evaluated early)
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.frontend.arn
+  }
+
+  condition {
+    path_pattern {
+      values = ["/oauth2/idpresponse"]
+    }
+  }
+}
+
+# Health check rule for frontend (exempt from auth)
+resource "aws_lb_listener_rule" "frontend_health_https" {
+  count        = local.use_https ? 1 : 0
+  listener_arn = aws_lb_listener.https[0].arn
+  priority     = 10  # High priority for health checks
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.frontend.arn
+  }
+
+  condition {
+    path_pattern {
+      values = ["/health"]
+    }
   }
 }
 
@@ -396,6 +461,42 @@ resource "aws_lb_listener_rule" "api_https" {
   }
 }
 
+# Health check rule for backend service
+resource "aws_lb_listener_rule" "backend_health_https" {
+  count        = local.use_https ? 1 : 0
+  listener_arn = aws_lb_listener.https[0].arn
+  priority     = 101
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.backend.arn
+  }
+
+  condition {
+    path_pattern {
+      values = ["/api/health"]
+    }
+  }
+}
+
+# Health check rule for frontend HTTP
+resource "aws_lb_listener_rule" "frontend_health_http" {
+  count        = local.use_https ? 0 : 1
+  listener_arn = aws_lb_listener.http.arn
+  priority     = 10  # High priority for health checks
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.frontend.arn
+  }
+
+  condition {
+    path_pattern {
+      values = ["/health"]
+    }
+  }
+}
+
 resource "aws_lb_listener_rule" "api_http" {
   count        = local.use_https ? 0 : 1
   listener_arn = aws_lb_listener.http.arn
@@ -409,6 +510,24 @@ resource "aws_lb_listener_rule" "api_http" {
   condition {
     path_pattern {
       values = ["/api/*"]
+    }
+  }
+}
+
+# Health check rule for backend service (HTTP)
+resource "aws_lb_listener_rule" "backend_health_http" {
+  count        = local.use_https ? 0 : 1
+  listener_arn = aws_lb_listener.http.arn
+  priority     = 101
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.backend.arn
+  }
+
+  condition {
+    path_pattern {
+      values = ["/api/health"]
     }
   }
 }
@@ -444,6 +563,93 @@ resource "aws_lb_listener_rule" "fhir_http" {
   condition {
     path_pattern {
       values = ["/fhir/*"]
+    }
+  }
+}
+
+# Rule for sponsor-fhir domain with authentication
+resource "aws_lb_listener_rule" "fhir_domain_https" {
+  count        = local.use_https && var.fhir_domain_name != "" ? 1 : 0
+  listener_arn = aws_lb_listener.https[0].arn
+  priority     = 8  # High priority to be evaluated early
+
+  # First authenticate
+  action {
+    type = "authenticate-cognito"
+    authenticate_cognito {
+      user_pool_arn       = "arn:aws:cognito-idp:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:userpool/${var.cognito_user_pool_id}"
+      user_pool_client_id = var.cognito_user_pool_client_id
+      user_pool_domain    = var.cognito_user_pool_domain
+      session_cookie_name = "${var.project}-${var.environment}-fhir-session"
+      session_timeout     = 86400
+      scope               = "openid profile email"
+      on_unauthenticated_request = "authenticate"
+    }
+    order = 1
+  }
+
+  # Then forward to FHIR
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.fhir.arn
+    order            = 2
+  }
+
+  condition {
+    host_header {
+      values = [var.fhir_domain_name]
+    }
+  }
+}
+
+# Create a listener on port 8443 for service-to-service API calls (no auth)
+resource "aws_lb_listener" "api_https" {
+  count             = local.use_https ? 1 : 0
+  load_balancer_arn = aws_lb.main.arn
+  port              = 8443
+  protocol          = "HTTPS"
+  ssl_policy        = "ELBSecurityPolicy-2016-08"
+  certificate_arn   = var.certificate_arn
+
+  # Default action is to forward to FHIR target group
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.fhir.arn
+  }
+}
+
+# Create a rule for the 8443 listener to handle proxied paths from API Gateway
+resource "aws_lb_listener_rule" "api_https_fhir_path" {
+  count        = local.use_https ? 1 : 0
+  listener_arn = aws_lb_listener.api_https[0].arn
+  priority     = 1
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.fhir.arn
+  }
+
+  condition {
+    path_pattern {
+      values = ["/fhir/*"]
+    }
+  }
+}
+
+# Rule for api.sponsor-fhir domain with no authentication
+resource "aws_lb_listener_rule" "api_fhir_domain_https" {
+  count        = local.use_https && var.api_fhir_domain_name != "" ? 1 : 0
+  listener_arn = aws_lb_listener.https[0].arn
+  priority     = 9  # High priority but lower than the authenticated rule
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.fhir.arn
+  }
+
+  condition {
+    host_header {
+      values = [var.api_fhir_domain_name]
     }
   }
 }

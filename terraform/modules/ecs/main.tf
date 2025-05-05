@@ -1,3 +1,13 @@
+# Create a null resource to ensure the load balancer is ready
+resource "null_resource" "lb_exists" {
+  # Trigger on target group ARNs
+  triggers = {
+    fhir_tg     = var.fhir_target_group_arn
+    frontend_tg = var.frontend_target_group_arn
+    backend_tg  = var.backend_target_group_arn
+  }
+}
+
 resource "aws_ecs_cluster" "main" {
   name = "${var.project}-${var.environment}-cluster"
 
@@ -265,7 +275,7 @@ resource "aws_ecs_task_definition" "backend" {
       environment = [
         {
           name  = "FHIR_SERVER_URL"
-          value = var.fhir_domain_name != "" ? "https://${var.fhir_domain_name}/fhir" : "https://${var.domain_name}/fhir"
+          value = var.api_fhir_domain_name != "" ? "https://${var.api_fhir_domain_name}/fhir" : (var.fhir_domain_name != "" ? "https://${var.fhir_domain_name}/fhir" : "https://${var.domain_name}/fhir")
         },
         {
           name  = "COGNITO_REGION"
@@ -290,6 +300,10 @@ resource "aws_ecs_task_definition" "backend" {
         {
           name  = "FHIR_APP_CLIENT_SECRET"
           value = var.cognito_fhir_client_secret
+        },
+        {
+          name  = "API_GATEWAY_KEY"
+          value = var.api_gateway_key
         }
       ]
       
@@ -336,6 +350,9 @@ resource "aws_ecs_service" "fhir" {
     rollback = true
   }
 
+  # Ensure the service is created after the load balancer target groups and listeners are ready
+  depends_on = [null_resource.lb_exists]
+
   tags = {
     Name        = "${var.project}-${var.environment}-fhir"
     Environment = var.environment
@@ -372,6 +389,9 @@ resource "aws_ecs_service" "frontend" {
     rollback = true
   }
 
+  # Ensure the service is created after the load balancer target groups and listeners are ready
+  depends_on = [null_resource.lb_exists]
+
   tags = {
     Name        = "${var.project}-${var.environment}-frontend"
     Environment = var.environment
@@ -406,6 +426,9 @@ resource "aws_ecs_service" "backend" {
     enable   = true
     rollback = true
   }
+
+  # Ensure the service is created after the load balancer target groups and listeners are ready
+  depends_on = [null_resource.lb_exists]
 
   tags = {
     Name        = "${var.project}-${var.environment}-backend"

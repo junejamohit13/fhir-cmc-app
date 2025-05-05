@@ -17,3 +17,9 @@ variable "domain_name" {
   description = "Domain name for the application"
   type        = string
 }
+
+variable "fhir_domain_name" {
+  description = "Domain name for the FHIR server"
+  type        = string
+  default     = ""
+}

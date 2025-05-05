@@ -60,9 +60,9 @@ build_and_push() {
     
     cd "$dir"
     
-    # Build the image
-    echo "Building Docker image..."
-    docker build -t $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$repo:$TAG .
+    # Build the image with explicit platform for compatibility with AWS ECS (which uses amd64/x86_64)
+    echo "Building Docker image for linux/amd64 platform..."
+    docker build --platform linux/amd64 -t $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$repo:$TAG .
     docker tag $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$repo:$TAG $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$repo:latest
     
     # Push the image

@@ -7,6 +7,10 @@ availability_zones = ["us-east-1a", "us-east-1b"]
 domain_name      = "sponsor.cmc-fhir-demo.com"
 # Dedicated FHIR server domain - uncomment and set value to use a dedicated domain for FHIR
 fhir_domain_name = "sponsor-fhir.cmc-fhir-demo.com"
+# API domain for service-to-service communication (using API key auth)
+api_fhir_domain_name = "api.sponsor-fhir.cmc-fhir-demo.com"
+# API key for authenticating with API Gateway
+api_gateway_key = "your-api-gateway-key-here"
 # Set to false because you already created the Route53 zone manually
 create_route53_zone = false
 
