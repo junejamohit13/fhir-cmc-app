@@ -10,6 +10,12 @@ variable "project" {
   default     = "fhir-cmc"
 }
 
+variable "fhir_nlb_target_group_arn" {
+  description = "ARN of the NLB target group for the FHIR service"
+  type        = string
+  default     = ""  # Default to empty string to make it optional
+}
+
 variable "environment" {
   description = "Environment name"
   type        = string
@@ -150,7 +156,7 @@ variable "backend_task_memory" {
 variable "fhir_service_count" {
   description = "Number of FHIR tasks to run"
   type        = number
-  default     = 2
+  default     = 1
 }
 
 variable "frontend_service_count" {
@@ -168,7 +174,7 @@ variable "backend_service_count" {
 variable "fhir_min_count" {
   description = "Minimum number of FHIR tasks"
   type        = number
-  default     = 2
+  default     = 1
 }
 
 variable "fhir_max_count" {

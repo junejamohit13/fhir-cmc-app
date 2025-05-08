@@ -5,6 +5,7 @@ resource "null_resource" "lb_exists" {
     fhir_tg     = var.fhir_target_group_arn
     frontend_tg = var.frontend_target_group_arn
     backend_tg  = var.backend_target_group_arn
+    fhir_nlb_tg = var.fhir_nlb_target_group_arn
   }
 }
 
@@ -339,10 +340,21 @@ resource "aws_ecs_service" "fhir" {
     assign_public_ip = false
   }
 
+  # Primary ALB load balancer (with Cognito auth)
   load_balancer {
     target_group_arn = var.fhir_target_group_arn
     container_name   = "fhir-server"
     container_port   = 8080
+  }
+
+  # Only add the NLB target group if provided
+  dynamic "load_balancer" {
+    for_each = var.fhir_nlb_target_group_arn != "" ? [1] : []
+    content {
+      target_group_arn = var.fhir_nlb_target_group_arn
+      container_name   = "fhir-server"
+      container_port   = 8080
+    }
   }
 
   deployment_circuit_breaker {
@@ -350,7 +362,6 @@ resource "aws_ecs_service" "fhir" {
     rollback = true
   }
 
-  # Ensure the service is created after the load balancer target groups and listeners are ready
   depends_on = [null_resource.lb_exists]
 
   tags = {

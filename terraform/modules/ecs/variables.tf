@@ -88,6 +88,12 @@ variable "fhir_target_group_arn" {
   type        = string
 }
 
+variable "fhir_nlb_target_group_arn" {
+  description = "ARN of the NLB target group for the FHIR service"
+  type        = string
+  default     = ""  # Default to empty string to make it optional
+}
+
 variable "cognito_user_pool_id" {
   description = "ID of the Cognito User Pool"
   type        = string

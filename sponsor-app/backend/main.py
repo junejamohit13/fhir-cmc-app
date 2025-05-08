@@ -24,7 +24,8 @@ app.add_middleware(
 )
 
 # FHIR Server Configuration
-FHIR_SERVER_URL = os.environ.get("FHIR_SERVER_URL", "http://localhost:8082/fhir")
+# Default to the API Gateway endpoint for direct FHIR service access with API key auth
+FHIR_SERVER_URL = os.environ.get("FHIR_SERVER_URL", "https://api.sponsor-fhir.cmc-fhir-demo.com")
 # Port that this server is running on (for self-references)
 SPONSOR_SERVER_URL = os.environ.get("SPONSOR_SERVER_URL", "http://localhost:8002")
 
