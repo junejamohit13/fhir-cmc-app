@@ -37,6 +37,8 @@ class PlanDefinitionCreate(BaseModel):
     # Sponsor information
     sponsor_name: str = "Default Sponsor"
     sponsor_id: str = "SPONSOR-DEFAULT"
+    # Reference to medicinal product
+    medicinal_product_id: Optional[str] = None
 
 class PlanDefinitionUpdate(BaseModel):
     title: Optional[str] = None
@@ -51,6 +53,7 @@ class PlanDefinitionUpdate(BaseModel):
     stability_tests: Optional[List[Dict[str, Any]]] = None
     sponsor_name: Optional[str] = None
     sponsor_id: Optional[str] = None
+    medicinal_product_id: Optional[str] = None
 
 class OrganizationCreate(BaseModel):
     name: str
@@ -78,6 +81,7 @@ class BatchCreate(BaseModel):
     name: str
     identifier: str
     protocol_id: str
+    medicinal_product_id: Optional[str] = None
     lot_number: Optional[str] = None
     manufacturing_date: Optional[str] = None
     expiry_date: Optional[str] = None
@@ -87,11 +91,33 @@ class TestResultCreate(BaseModel):
     test_id: str
     batch_id: str
     organization_id: str
+    observation_definition_id: Optional[str] = None  # Link to test definition
     value: Any
     unit: Optional[str] = None
     result_date: str
     status: str = "completed"
     comments: Optional[str] = None
+
+class MedicinalProductCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    status: str = "active"
+    identifier: str
+    product_type: str = "drug"  # drug, device, etc.
+    route_of_administration: Optional[List[str]] = None
+    manufacturer_id: Optional[str] = None
+
+class ObservationDefinitionCreate(BaseModel):
+    title: str
+    description: Optional[str] = None
+    code: str  # Code identifying the test
+    code_display: Optional[str] = None
+    category: Optional[str] = None  # e.g., "laboratory"
+    permitted_data_type: str  # Quantity, CodeableConcept, string, boolean, etc.
+    unit: Optional[str] = None
+    reference_range: Optional[Dict[str, Any]] = None  # Min, max, etc.
+    protocol_id: Optional[str] = None  # Link to protocol
+    timepoint_id: Optional[str] = None  # Link to specific timepoint in protocol
 
 @app.get("/")
 def read_root():
@@ -159,6 +185,15 @@ async def create_protocol(protocol: PlanDefinitionCreate):
             del protocol_data["sponsor_name"]
         if "sponsor_id" in protocol_data:
             del protocol_data["sponsor_id"]
+        if "medicinal_product_id" in protocol_data:
+            medicinal_product_id = protocol_data["medicinal_product_id"]
+            del protocol_data["medicinal_product_id"]
+            
+            # Add subject reference to medicinal product if provided
+            if medicinal_product_id:
+                protocol_data["subject"] = {
+                    "reference": f"MedicinalProductDefinition/{medicinal_product_id}"
+                }
         
         # Add sponsor details extension
         protocol_data["extension"].append({
@@ -245,6 +280,14 @@ async def update_protocol(protocol_id: str, protocol_update: PlanDefinitionUpdat
         # Get sponsor details from the request if provided
         sponsor_name = protocol_update.sponsor_name
         sponsor_id = protocol_update.sponsor_id
+        
+        # Handle medicinal product reference update
+        if "medicinal_product_id" in update_data:
+            medicinal_product_id = update_data.pop("medicinal_product_id")
+            if medicinal_product_id:
+                existing_protocol["subject"] = {
+                    "reference": f"MedicinalProductDefinition/{medicinal_product_id}"
+                }
         
         # Remove these from update_data since they're not part of FHIR PlanDefinition
         if "sponsor_name" in update_data:
@@ -875,7 +918,7 @@ async def share_protocol(protocol_id: str, share_request: ProtocolShareRequest):
                 try:
                     # Get the batch
                     batch_response = requests.get(
-                        f"{FHIR_SERVER_URL}/Device/{batch_id}",
+                        f"{FHIR_SERVER_URL}/Medication/{batch_id}",
                         headers={"Accept": "application/fhir+json"}
                     )
                     batch_response.raise_for_status()
@@ -903,9 +946,15 @@ async def share_protocol(protocol_id: str, share_request: ProtocolShareRequest):
                         "extension": org_references
                     })
                     
+                    # Add proper medication code for stability batches
+                    batch["extension"].append({
+                        "url": "http://example.org/fhir/StructureDefinition/medication-type",
+                        "valueString": "stability-batch"
+                    })
+                    
                     # Update the batch
                     batch_update_response = requests.put(
-                        f"{FHIR_SERVER_URL}/Device/{batch_id}",
+                        f"{FHIR_SERVER_URL}/Medication/{batch_id}",
                         json=batch,
                         headers={
                             "Content-Type": "application/fhir+json",
@@ -1050,7 +1099,7 @@ async def share_protocol(protocol_id: str, share_request: ProtocolShareRequest):
                                         try:
                                             # Get the batch
                                             batch_response = requests.get(
-                                                f"{FHIR_SERVER_URL}/Device/{batch_id}",
+                                                f"{FHIR_SERVER_URL}/Medication/{batch_id}",
                                                 headers={"Accept": "application/fhir+json"}
                                             )
                                             
@@ -1122,14 +1171,15 @@ async def share_protocol(protocol_id: str, share_request: ProtocolShareRequest):
                                                         "value": protocol_id
                                                     })
                                                     
-                                                # Add proper device type for stability batches
-                                                external_batch["type"] = {
+                                                # Add proper medication code for stability batches
+                                                external_batch["code"] = {
                                                     "coding": [
                                                         {
-                                                            "system": "http://example.org/fhir/device-types",
+                                                            "system": "http://example.org/fhir/medication-types",
                                                             "code": "stability-batch"
                                                         }
-                                                    ]
+                                                    ],
+                                                    "text": external_batch.get("code", {}).get("text", "Stability Test Batch")
                                                 }
                                                 
                                                 # Update the protocol reference to use the logical ID
@@ -1153,7 +1203,7 @@ async def share_protocol(protocol_id: str, share_request: ProtocolShareRequest):
                                                     "resource": external_batch,
                                                     "request": {
                                                         "method": "POST",
-                                                        "url": "Device"
+                                                        "url": "Medication"
                                                     }
                                                 })
                                         except Exception as batch_error:
@@ -1513,17 +1563,14 @@ async def get_test(test_id: str):
 # Batch Management Endpoints
 @app.post("/batches")
 async def create_batch(batch: BatchCreate):
-    """Create a new test batch using FHIR Device resource"""
+    """Create a new test batch using FHIR Medication resource"""
     try:
-        # Convert to FHIR Device
+        # Convert to FHIR Medication
         batch_data = {
-            "resourceType": "Device",
-            "deviceName": [
-                {
-                    "name": batch.name,
-                    "type": "manufacturer-name"
-                }
-            ],
+            "resourceType": "Medication",
+            "code": {
+                "text": batch.name
+            },
             "status": batch.status,
             "identifier": [
                 {
@@ -1531,21 +1578,46 @@ async def create_batch(batch: BatchCreate):
                     "value": batch.identifier
                 }
             ],
-            "manufactureDate": batch.manufacturing_date,
-            "expirationDate": batch.expiry_date,
             "lotNumber": batch.lot_number,
+            # Add dates in extension since Medication doesn't have direct date fields
             "extension": [
                 {
                     "url": "http://example.org/fhir/StructureDefinition/batch-protocol",
                     "valueReference": {
                         "reference": f"PlanDefinition/{batch.protocol_id}"
                     }
+                },
+                {
+                    "url": "http://example.org/fhir/StructureDefinition/manufacturing-date",
+                    "valueDateTime": batch.manufacturing_date
+                },
+                {
+                    "url": "http://example.org/fhir/StructureDefinition/expiry-date",
+                    "valueDateTime": batch.expiry_date
                 }
             ]
         }
         
+        # Add reference to medicinal product if provided
+        if batch.medicinal_product_id:
+            batch_data["extension"].append({
+                "url": "http://example.org/fhir/StructureDefinition/medicinal-product",
+                "valueReference": {
+                    "reference": f"MedicinalProductDefinition/{batch.medicinal_product_id}"
+                }
+            })
+            
+            # Also set it as ingredient to comply with FHIR structure
+            batch_data["ingredient"] = [
+                {
+                    "itemReference": {
+                        "reference": f"MedicinalProductDefinition/{batch.medicinal_product_id}"
+                    }
+                }
+            ]
+        
         response = requests.post(
-            f"{FHIR_SERVER_URL}/Device",
+            f"{FHIR_SERVER_URL}/Medication",
             json=batch_data,
             headers={
                 "Content-Type": "application/fhir+json",
@@ -1569,27 +1641,27 @@ async def create_batch(batch: BatchCreate):
 
 @app.get("/batches")
 async def get_batches(protocol_id: Optional[str] = None):
-    """Get all batches, optionally filtered by protocol ID"""
+    """Get all batches (Medication resources), optionally filtered by protocol ID"""
     try:
         if protocol_id:
-            # Get all devices first
+            # Get all Medications first
             response = requests.get(
-                f"{FHIR_SERVER_URL}/Device",
+                f"{FHIR_SERVER_URL}/Medication",
                 headers={"Accept": "application/fhir+json"}
             )
             response.raise_for_status()
-            all_devices = response.json()
+            all_medications = response.json()
             
-            # Filter devices by protocol_id in the extension
-            if all_devices and all_devices.get("resourceType") == "Bundle" and all_devices.get("entry"):
+            # Filter medications by protocol_id in the extension
+            if all_medications and all_medications.get("resourceType") == "Bundle" and all_medications.get("entry"):
                 filtered_entries = []
                 
-                for entry in all_devices["entry"]:
-                    device = entry.get("resource", {})
+                for entry in all_medications["entry"]:
+                    medication = entry.get("resource", {})
                     protocol_reference = None
                     
                     # Check for protocol reference in extensions
-                    for ext in device.get("extension", []):
+                    for ext in medication.get("extension", []):
                         if ext.get("url") == "http://example.org/fhir/StructureDefinition/batch-protocol":
                             if ext.get("valueReference", {}).get("reference") == f"PlanDefinition/{protocol_id}":
                                 filtered_entries.append(entry)
@@ -1604,11 +1676,11 @@ async def get_batches(protocol_id: Optional[str] = None):
                 }
                 return filtered_bundle
             
-            return all_devices
+            return all_medications
         else:
-            # Get all devices without filtering
+            # Get all Medications without filtering
             response = requests.get(
-                f"{FHIR_SERVER_URL}/Device",
+                f"{FHIR_SERVER_URL}/Medication",
                 headers={"Accept": "application/fhir+json"}
             )
             
@@ -1622,7 +1694,7 @@ async def get_batch(batch_id: str):
     """Get a specific batch by ID"""
     try:
         response = requests.get(
-            f"{FHIR_SERVER_URL}/Device/{batch_id}",
+            f"{FHIR_SERVER_URL}/Medication/{batch_id}",
             headers={"Accept": "application/fhir+json"}
         )
         response.raise_for_status()
@@ -1652,8 +1724,8 @@ async def create_test_result(result: TestResultCreate):
             },
             "effectiveDateTime": result.result_date,
             "valueString": json.dumps(result.value) if isinstance(result.value, (dict, list)) else str(result.value),
-            "device": {
-                "reference": f"Device/{result.batch_id}"
+            "subject": {
+                "reference": f"Medication/{result.batch_id}"
             },
             "extension": [
                 {
@@ -1670,6 +1742,22 @@ async def create_test_result(result: TestResultCreate):
                 }
             ]
         }
+        
+        # Link to ObservationDefinition if provided
+        if result.observation_definition_id:
+            result_data["hasMember"] = [
+                {
+                    "reference": f"ObservationDefinition/{result.observation_definition_id}"
+                }
+            ]
+            
+            # Also add as a specific extension
+            result_data["extension"].append({
+                "url": "http://example.org/fhir/StructureDefinition/observation-definition-reference",
+                "valueReference": {
+                    "reference": f"ObservationDefinition/{result.observation_definition_id}"
+                }
+            })
         
         # Add unit if provided
         if result.unit:
@@ -1720,8 +1808,8 @@ async def get_results(
         # Build standard query parameters
         query_params = []
         if batch_id:
-            # 'device' is a valid search parameter for Observation
-            query_params.append(f"device=Device/{batch_id}")
+            # 'subject' is the appropriate search parameter for Observation when referencing a Medication
+            query_params.append(f"subject=Medication/{batch_id}")
         
         query_string = "&".join(query_params)
         
@@ -1821,7 +1909,7 @@ async def get_cro_results(protocol_id: Optional[str] = None, batch_id: Optional[
         
         # Filter by batch if provided
         if batch_id:
-            query_params["subject"] = f"Device/{batch_id}"
+            query_params["subject"] = f"Medication/{batch_id}"
         
         # Execute the query
         response = requests.get(
@@ -1841,7 +1929,7 @@ async def get_cro_results(protocol_id: Optional[str] = None, batch_id: Optional[
                 "id": observation.get("id"),
                 "status": observation.get("status"),
                 "result_date": observation.get("effectiveDateTime"),
-                "batch_id": observation.get("subject", {}).get("reference", "").replace("Device/", ""),
+                "batch_id": observation.get("subject", {}).get("reference", "").replace("Medication/", ""),
                 "test_type": observation.get("code", {}).get("text", "Unknown test")
             }
             
@@ -1886,14 +1974,14 @@ async def get_cro_results(protocol_id: Optional[str] = None, batch_id: Optional[
                     # Check if batch belongs to protocol
                     try:
                         batch_response = requests.get(
-                            f"{FHIR_SERVER_URL}/Device/{batch_id}",
+                            f"{FHIR_SERVER_URL}/Medication/{batch_id}",
                             headers={"Accept": "application/fhir+json"}
                         )
                         if batch_response.status_code == 200:
                             batch = batch_response.json()
-                            # Check identifiers for protocol reference
-                            for ident in batch.get("identifier", []):
-                                if ident.get("system") == "http://example.org/fhir/identifier/protocol" and ident.get("value") == protocol_id:
+                            # Check extensions for protocol reference
+                            for ext in batch.get("extension", []):
+                                if ext.get("url") == "http://example.org/fhir/StructureDefinition/batch-protocol" and ext.get("valueReference", {}).get("reference") == f"PlanDefinition/{protocol_id}":
                                     all_results.append(processed_result)
                                     break
                     except:
@@ -1971,6 +2059,268 @@ async def receive_external_result(result: Dict[str, Any]):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to process external result: {str(e)}")
+
+# Medicinal Product endpoints
+@app.post("/medicinal-products")
+async def create_medicinal_product(product: MedicinalProductCreate):
+    """Create a new medicinal product using FHIR MedicinalProductDefinition resource"""
+    try:
+        # Convert to FHIR MedicinalProductDefinition
+        product_data = {
+            "resourceType": "MedicinalProductDefinition",
+            "status": product.status,
+            "name": [
+                {
+                    "productName": product.name
+                }
+            ],
+            "description": product.description,
+            "identifier": [
+                {
+                    "system": "http://example.org/medicinal-product-identifiers",
+                    "value": product.identifier
+                }
+            ],
+            "type": {
+                "coding": [
+                    {
+                        "system": "http://example.org/medicinal-product-types",
+                        "code": product.product_type
+                    }
+                ]
+            }
+        }
+        
+        # Add route of administration if provided
+        if product.route_of_administration:
+            product_data["route"] = []
+            for route in product.route_of_administration:
+                product_data["route"].append({
+                    "coding": [
+                        {
+                            "system": "http://example.org/route-of-administration",
+                            "code": route
+                        }
+                    ]
+                })
+        
+        # Add manufacturer reference if provided
+        if product.manufacturer_id:
+            product_data["manufacturer"] = [
+                {
+                    "reference": f"Organization/{product.manufacturer_id}"
+                }
+            ]
+        
+        response = requests.post(
+            f"{FHIR_SERVER_URL}/MedicinalProductDefinition",
+            json=product_data,
+            headers={
+                "Content-Type": "application/fhir+json",
+                "Accept": "application/fhir+json"
+            }
+        )
+        response.raise_for_status()
+        
+        # Return the created medicinal product
+        return response.json()
+    except requests.RequestException as e:
+        error_message = str(e)
+        if hasattr(e, 'response') and e.response:
+            try:
+                error_detail = e.response.json()
+                error_message = json.dumps(error_detail)
+            except:
+                error_message = e.response.text
+        
+        raise HTTPException(status_code=500, detail=f"Failed to create medicinal product: {error_message}")
+
+@app.get("/medicinal-products")
+async def get_medicinal_products():
+    """Get all medicinal products"""
+    try:
+        response = requests.get(
+            f"{FHIR_SERVER_URL}/MedicinalProductDefinition",
+            headers={"Accept": "application/fhir+json"}
+        )
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch medicinal products: {str(e)}")
+
+@app.get("/medicinal-products/{product_id}")
+async def get_medicinal_product(product_id: str):
+    """Get a specific medicinal product by ID"""
+    try:
+        response = requests.get(
+            f"{FHIR_SERVER_URL}/MedicinalProductDefinition/{product_id}",
+            headers={"Accept": "application/fhir+json"}
+        )
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException as e:
+        if e.response and e.response.status_code == 404:
+            raise HTTPException(status_code=404, detail=f"Medicinal product with ID {product_id} not found")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch medicinal product: {str(e)}")
+
+# ObservationDefinition endpoints
+@app.post("/observation-definitions")
+async def create_observation_definition(observation_def: ObservationDefinitionCreate):
+    """Create a new test definition using FHIR ObservationDefinition resource"""
+    try:
+        # Convert to FHIR ObservationDefinition
+        obs_def_data = {
+            "resourceType": "ObservationDefinition",
+            "status": "active",
+            "code": {
+                "coding": [
+                    {
+                        "system": "http://example.org/stability-tests",
+                        "code": observation_def.code,
+                        "display": observation_def.code_display or observation_def.title
+                    }
+                ],
+                "text": observation_def.title
+            },
+            "permittedDataType": [observation_def.permitted_data_type],
+        }
+        
+        # Add description if provided
+        if observation_def.description:
+            obs_def_data["description"] = observation_def.description
+            
+        # Add category if provided
+        if observation_def.category:
+            obs_def_data["category"] = [
+                {
+                    "coding": [
+                        {
+                            "system": "http://example.org/stability-test-categories",
+                            "code": observation_def.category
+                        }
+                    ]
+                }
+            ]
+        
+        # Add reference range if provided
+        if observation_def.reference_range:
+            obs_def_data["qualifiedInterval"] = [
+                {
+                    "category": "reference",
+                    "range": {
+                        "low": observation_def.reference_range.get("low"),
+                        "high": observation_def.reference_range.get("high")
+                    }
+                }
+            ]
+        
+        # Add unit if provided
+        if observation_def.unit:
+            obs_def_data["quantitativeDetails"] = {
+                "unit": {
+                    "coding": [
+                        {
+                            "system": "http://unitsofmeasure.org",
+                            "code": observation_def.unit
+                        }
+                    ],
+                    "text": observation_def.unit
+                }
+            }
+        
+        # Add extensions for protocol and timepoint links
+        obs_def_data["extension"] = []
+        
+        if observation_def.protocol_id:
+            obs_def_data["extension"].append({
+                "url": "http://example.org/fhir/StructureDefinition/protocol-reference",
+                "valueReference": {
+                    "reference": f"PlanDefinition/{observation_def.protocol_id}"
+                }
+            })
+            
+        if observation_def.timepoint_id:
+            obs_def_data["extension"].append({
+                "url": "http://example.org/fhir/StructureDefinition/timepoint-reference",
+                "valueString": observation_def.timepoint_id
+            })
+        
+        response = requests.post(
+            f"{FHIR_SERVER_URL}/ObservationDefinition",
+            json=obs_def_data,
+            headers={
+                "Content-Type": "application/fhir+json",
+                "Accept": "application/fhir+json"
+            }
+        )
+        response.raise_for_status()
+        
+        # Return the created observation definition
+        return response.json()
+    except requests.RequestException as e:
+        error_message = str(e)
+        if hasattr(e, 'response') and e.response:
+            try:
+                error_detail = e.response.json()
+                error_message = json.dumps(error_detail)
+            except:
+                error_message = e.response.text
+        
+        raise HTTPException(status_code=500, detail=f"Failed to create observation definition: {error_message}")
+
+@app.get("/observation-definitions")
+async def get_observation_definitions(protocol_id: Optional[str] = None):
+    """Get all observation definitions, optionally filtered by protocol ID"""
+    try:
+        # Get all definitions first
+        response = requests.get(
+            f"{FHIR_SERVER_URL}/ObservationDefinition",
+            headers={"Accept": "application/fhir+json"}
+        )
+        response.raise_for_status()
+        all_defs = response.json()
+        
+        # If protocol_id is provided, filter by protocol reference
+        if protocol_id and all_defs and all_defs.get("resourceType") == "Bundle" and all_defs.get("entry"):
+            filtered_entries = []
+            
+            for entry in all_defs["entry"]:
+                obs_def = entry.get("resource", {})
+                
+                # Check for protocol reference in extensions
+                for ext in obs_def.get("extension", []):
+                    if ext.get("url") == "http://example.org/fhir/StructureDefinition/protocol-reference":
+                        if ext.get("valueReference", {}).get("reference") == f"PlanDefinition/{protocol_id}":
+                            filtered_entries.append(entry)
+                            break
+            
+            # Return filtered bundle
+            filtered_bundle = {
+                "resourceType": "Bundle",
+                "type": "searchset",
+                "total": len(filtered_entries),
+                "entry": filtered_entries
+            }
+            return filtered_bundle
+        
+        return all_defs
+    except requests.RequestException as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch observation definitions: {str(e)}")
+
+@app.get("/observation-definitions/{obs_def_id}")
+async def get_observation_definition(obs_def_id: str):
+    """Get a specific observation definition by ID"""
+    try:
+        response = requests.get(
+            f"{FHIR_SERVER_URL}/ObservationDefinition/{obs_def_id}",
+            headers={"Accept": "application/fhir+json"}
+        )
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException as e:
+        if e.response and e.response.status_code == 404:
+            raise HTTPException(status_code=404, detail=f"Observation definition with ID {obs_def_id} not found")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch observation definition: {str(e)}")
 
 # Run with: uvicorn main:app --reload
 if __name__ == "__main__":

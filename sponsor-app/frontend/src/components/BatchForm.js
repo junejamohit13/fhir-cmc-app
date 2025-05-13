@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   TextField,
@@ -27,6 +27,32 @@ function BatchForm({ initialData = {}, onSubmit, protocols = [], isEdit = false 
     ...initialData
   });
 
+  useEffect(() => {
+    if (initialData) {
+      const updatedData = { ...initialData };
+      
+      if (initialData.manufacturing_date) {
+        try {
+          updatedData.manufacturing_date = new Date(initialData.manufacturing_date);
+        } catch (e) {
+          console.error("Invalid manufacturing date:", initialData.manufacturing_date);
+          updatedData.manufacturing_date = null;
+        }
+      }
+      
+      if (initialData.expiry_date) {
+        try {
+          updatedData.expiry_date = new Date(initialData.expiry_date);
+        } catch (e) {
+          console.error("Invalid expiry date:", initialData.expiry_date);
+          updatedData.expiry_date = null;
+        }
+      }
+      
+      setBatchData(updatedData);
+    }
+  }, [initialData]);
+
   const handleChange = (e) => {
     const { name, value } = e.target;
     setBatchData({
@@ -38,13 +64,24 @@ function BatchForm({ initialData = {}, onSubmit, protocols = [], isEdit = false 
   const handleDateChange = (name, date) => {
     setBatchData({
       ...batchData,
-      [name]: date ? date.toISOString().split('T')[0] : null
+      [name]: date
     });
   };
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    onSubmit(batchData);
+    
+    const submissionData = { ...batchData };
+    
+    if (submissionData.manufacturing_date instanceof Date) {
+      submissionData.manufacturing_date = submissionData.manufacturing_date.toISOString().split('T')[0];
+    }
+    
+    if (submissionData.expiry_date instanceof Date) {
+      submissionData.expiry_date = submissionData.expiry_date.toISOString().split('T')[0];
+    }
+    
+    onSubmit(submissionData);
   };
 
   return (
@@ -121,7 +158,7 @@ function BatchForm({ initialData = {}, onSubmit, protocols = [], isEdit = false 
             <Grid item xs={12} sm={6}>
               <DatePicker
                 label="Manufacturing Date"
-                value={batchData.manufacturing_date ? new Date(batchData.manufacturing_date) : null}
+                value={batchData.manufacturing_date}
                 onChange={(date) => handleDateChange('manufacturing_date', date)}
                 slotProps={{ textField: { fullWidth: true } }}
               />
@@ -129,7 +166,7 @@ function BatchForm({ initialData = {}, onSubmit, protocols = [], isEdit = false 
             <Grid item xs={12} sm={6}>
               <DatePicker
                 label="Expiry Date"
-                value={batchData.expiry_date ? new Date(batchData.expiry_date) : null}
+                value={batchData.expiry_date}
                 onChange={(date) => handleDateChange('expiry_date', date)}
                 slotProps={{ textField: { fullWidth: true } }}
               />
