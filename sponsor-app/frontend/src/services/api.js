@@ -377,3 +377,116 @@ export const deleteResult = async (id) => {
     throw error;
   }
 };
+
+// Medicinal Product API endpoints
+export const fetchMedicinalProducts = async () => {
+  try {
+    console.log('Fetching medicinal products data');
+    const response = await api.get('/medicinal-products');
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching medicinal products:', error);
+    throw error;
+  }
+};
+
+export const fetchMedicinalProductById = async (id) => {
+  try {
+    const response = await api.get(`/medicinal-products/${id}`);
+    return response.data;
+  } catch (error) {
+    console.error(`Error fetching medicinal product ${id}:`, error);
+    throw error;
+  }
+};
+
+export const createMedicinalProduct = async (productData) => {
+  try {
+    const response = await api.post('/medicinal-products', productData);
+    return response.data;
+  } catch (error) {
+    console.error('Error creating medicinal product:', error);
+    throw error;
+  }
+};
+
+// ObservationDefinition API endpoints
+export const fetchObservationDefinitions = async (protocolId = null) => {
+  try {
+    let url = '/observation-definitions';
+    if (protocolId) {
+      url += `?protocol_id=${protocolId}`;
+    }
+    
+    console.log(`Fetching observation definitions from ${url}`);
+    const response = await api.get(url);
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching observation definitions:', error);
+    throw error;
+  }
+};
+
+export const fetchObservationDefinitionById = async (id) => {
+  try {
+    const response = await api.get(`/observation-definitions/${id}`);
+    return response.data;
+  } catch (error) {
+    console.error(`Error fetching observation definition ${id}:`, error);
+    throw error;
+  }
+};
+
+export const createObservationDefinition = async (definitionData) => {
+  try {
+    const response = await api.post('/observation-definitions', definitionData);
+    return response.data;
+  } catch (error) {
+    console.error('Error creating observation definition:', error);
+    throw error;
+  }
+};
+
+export const fetchTestObservationDefinitions = async (testId) => {
+  try {
+    const response = await api.get(`/tests/${testId}/observation-definitions`);
+    return response.data;
+  } catch (error) {
+    console.error(`Error fetching observation definitions for test ${testId}:`, error);
+    throw error;
+  }
+};
+
+export const fetchTestSpecimenDefinition = async (testId) => {
+  try {
+    const response = await api.get(`/tests/${testId}/specimen-definition`);
+    return response.data;
+  } catch (error) {
+    console.error(`Error fetching specimen definition for test ${testId}:`, error);
+    throw error;
+  }
+};
+
+export const createEnhancedTest = async (testData) => {
+  try {
+    console.log('Creating enhanced test with data:', testData);
+    const response = await api.post('/enhanced-tests', testData);
+    console.log('Enhanced test created successfully, response:', response.data);
+    return response.data;
+  } catch (error) {
+    console.error('Error creating enhanced test:', error);
+    throw error;
+  }
+};
+
+// Utility function to directly fetch a resource by its ID
+// This is useful when a resource has just been created but might not yet appear in search results
+export const fetchResourceById = async (resourceType, id) => {
+  try {
+    const response = await api.get(`/${resourceType.toLowerCase()}/${id}`);
+    return response.data;
+  } catch (error) {
+    console.error(`Error fetching ${resourceType} with ID ${id}:`, error);
+    throw error;
+  }
+};

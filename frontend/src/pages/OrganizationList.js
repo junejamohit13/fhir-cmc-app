@@ -24,6 +24,7 @@ import {
   Add as AddIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
+  Refresh as RefreshIcon,
 } from '@mui/icons-material';
 import { fetchOrganizations, deleteOrganization } from '../services/api';
 
@@ -84,26 +85,31 @@ function OrganizationList() {
     if (location.state?.refresh) {
       if (location.state.newItemId) {
         setHighlightedId(location.state.newItemId);
+        
+        // If we have the newly created organization data, add it directly to the list
+        if (location.state.newOrganization) {
+          console.log('Adding new organization to list:', location.state.newOrganization);
+          setOrganizations(prev => {
+            // Check if the org is already in the list
+            const exists = prev.some(org => org.id === location.state.newOrganization.id);
+            if (!exists) {
+              // Add the new organization to the top of the list
+              return [location.state.newOrganization, ...prev];
+            }
+            return prev;
+          });
+        } else {
+          // If we don't have the org data, load from server
+          loadOrganizations();
+        }
+        
         setTimeout(() => setHighlightedId(null), 5000);
-      }
-
-      if (location.state.newOrganization) {
-        // If we have a new organization passed directly, add it to the list
-        // This helps avoid delays from FHIR search caching issues
-        setOrganizations(prevOrgs => {
-          // Check if the organization is already in the list
-          const exists = prevOrgs.some(org => org.id === location.state.newOrganization.id);
-          if (!exists) {
-            console.log('Adding newly created organization to list:', location.state.newOrganization);
-            return [...prevOrgs, location.state.newOrganization];
-          }
-          return prevOrgs;
-        });
       } else {
-        // Otherwise do a full refresh
+        // Just refresh the list
         loadOrganizations();
       }
-
+      
+      // Clear navigation state
       navigate(location.pathname, { replace: true, state: {} });
     }
   }, [location.state, navigate, location.pathname]);
@@ -112,6 +118,11 @@ function OrganizationList() {
   /*  Actions                                                           */
   /* ------------------------------------------------------------------ */
   const handleEdit = (id) => navigate(`/organizations/${id}/edit`);
+  
+  const handleRefresh = () => {
+    console.log('Manual refresh requested');
+    loadOrganizations();
+  };
 
   const handleDelete = (organization) => {
     setOrganizationToDelete(organization);
@@ -144,9 +155,19 @@ function OrganizationList() {
         <Typography variant="h4" component="h1">
           Organizations
         </Typography>
-        <Button variant="contained" startIcon={<AddIcon />} onClick={() => navigate('/organizations/new')}>
-          Add Organization
-        </Button>
+        <Box>
+          <Button 
+            variant="outlined" 
+            startIcon={<RefreshIcon />} 
+            onClick={handleRefresh}
+            sx={{ mr: 2 }}
+          >
+            Refresh
+          </Button>
+          <Button variant="contained" startIcon={<AddIcon />} onClick={() => navigate('/organizations/new')}>
+            Add Organization
+          </Button>
+        </Box>
       </Box>
 
       {/* Errors */}
@@ -185,59 +206,55 @@ function OrganizationList() {
                 </TableCell>
               </TableRow>
             </TableHead>
-
             <TableBody>
-              {organizations.map((org) => {
-                if (!org?.id || !org?.name) return null;
-
-                const telecom = org.telecom ?? [];
-                const url = telecom.find((t) => t?.system === 'url')?.value ?? '';
-
-                const extension = org.extension ?? [];
-                const apiKey =
-                  extension.find(
-                    (e) => e?.url === 'http://example.org/fhir/StructureDefinition/organization-api-key'
-                  )?.valueString ?? '';
-
-                return (
-                  <TableRow
-                    key={org.id}
-                    sx={{
-                      backgroundColor: highlightedId === org.id ? 'rgba(144, 202, 249, 0.3)' : 'inherit',
-                      transition: 'background-color 0.5s ease',
-                    }}
-                  >
-                    <TableCell>{org.name}</TableCell>
-                    <TableCell>{url}</TableCell>
-                    <TableCell>{apiKey ? '••••••••' : 'None'}</TableCell>
-                    <TableCell align="right">
-                      <IconButton color="primary" onClick={() => handleEdit(org.id)} disabled={loading}>
-                        <EditIcon />
-                      </IconButton>
-                      <IconButton color="error" onClick={() => handleDelete(org)} disabled={loading}>
-                        <DeleteIcon />
-                      </IconButton>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
+              {organizations.map((org) => (
+                <TableRow 
+                  key={org.id} 
+                  sx={{ 
+                    backgroundColor: highlightedId === org.id ? 'rgba(144, 202, 249, 0.2)' : 'inherit',
+                    transition: 'background-color 0.5s ease'
+                  }}
+                >
+                  <TableCell>{org.name}</TableCell>
+                  <TableCell>
+                    {org.telecom && org.telecom[0] && org.telecom[0].value
+                      ? org.telecom[0].value
+                      : 'N/A'}
+                  </TableCell>
+                  <TableCell>
+                    {org.extension
+                      ? org.extension.find(
+                          (e) => e.url === 'http://example.org/fhir/StructureDefinition/organization-api-key'
+                        )?.valueString || 'N/A'
+                      : 'N/A'}
+                  </TableCell>
+                  <TableCell align="right">
+                    <IconButton onClick={() => handleEdit(org.id)}>
+                      <EditIcon />
+                    </IconButton>
+                    <IconButton color="error" onClick={() => handleDelete(org)}>
+                      <DeleteIcon />
+                    </IconButton>
+                  </TableCell>
+                </TableRow>
+              ))}
             </TableBody>
           </Table>
         </TableContainer>
       )}
 
-      {/* Delete dialog */}
+      {/* Delete Confirmation Dialog */}
       <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
-        <DialogTitle>Confirm Deletion</DialogTitle>
+        <DialogTitle>Confirm Delete</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            Are you sure you want to delete the organization "{organizationToDelete?.name}"? This action cannot be
-            undone, and all protocol shares with this organization will be removed.
+            Are you sure you want to delete the organization "
+            {organizationToDelete?.name}"? This action cannot be undone.
           </DialogContentText>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
-          <Button onClick={confirmDelete} color="error" autoFocus>
+          <Button onClick={confirmDelete} color="error">
             Delete
           </Button>
         </DialogActions>
@@ -246,4 +263,4 @@ function OrganizationList() {
   );
 }
 
-export default OrganizationList;
+export default OrganizationList; 

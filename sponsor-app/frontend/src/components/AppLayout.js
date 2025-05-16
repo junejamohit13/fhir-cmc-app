@@ -28,6 +28,7 @@ import {
   Assignment as AssignmentIcon,
   ExpandLess,
   ExpandMore,
+  Medication as MedicationIcon
 } from '@mui/icons-material';
 
 const drawerWidth = 240;
@@ -49,6 +50,7 @@ function AppLayout({ children }) {
     { text: 'Dashboard', icon: <DashboardIcon />, path: '/' },
     { text: 'Protocols', icon: <ScienceIcon />, path: '/protocols' },
     { text: 'Organizations', icon: <BusinessIcon />, path: '/organizations' },
+    { text: 'Medicinal Products', icon: <MedicationIcon />, path: '/medicinal-products' },
   ];
 
   const stabilityItems = [
@@ -118,6 +120,18 @@ function AppLayout({ children }) {
               <AddIcon />
             </ListItemIcon>
             <ListItemText primary="Create Protocol" />
+          </ListItemButton>
+        </ListItem>
+        <ListItem disablePadding>
+          <ListItemButton
+            component={RouterLink}
+            to="/medicinal-products/create"
+            selected={location.pathname === '/medicinal-products/create'}
+          >
+            <ListItemIcon>
+              <AddIcon />
+            </ListItemIcon>
+            <ListItemText primary="Create Medicinal Product" />
           </ListItemButton>
         </ListItem>
         <ListItem disablePadding>
@@ -203,6 +217,16 @@ function AppLayout({ children }) {
               startIcon={<AddIcon />}
             >
               New Organization
+            </Button>
+          )}
+          {location.pathname === '/medicinal-products' && (
+            <Button
+              color="inherit"
+              component={RouterLink}
+              to="/medicinal-products/create"
+              startIcon={<AddIcon />}
+            >
+              New Medicinal Product
             </Button>
           )}
           {location.pathname === '/tests' && (

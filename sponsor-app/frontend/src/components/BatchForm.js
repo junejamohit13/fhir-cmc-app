@@ -15,11 +15,11 @@ import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 
-function BatchForm({ initialData = {}, onSubmit, protocols = [], isEdit = false }) {
+function BatchForm({ initialData = {}, onSubmit, medicinalProducts = [], isEdit = false }) {
   const [batchData, setBatchData] = useState({
     name: '',
     identifier: '',
-    protocol_id: '',
+    medicinal_product_id: '',
     lot_number: '',
     manufacturing_date: null,
     expiry_date: null,
@@ -27,8 +27,18 @@ function BatchForm({ initialData = {}, onSubmit, protocols = [], isEdit = false 
     ...initialData
   });
 
+  // Log the initial state
   useEffect(() => {
-    if (initialData) {
+    console.log('BatchForm mounted');
+    // Only log initial state in development
+    if (process.env.NODE_ENV === 'development') {
+      console.log('Initial state:', batchData);
+    }
+  }, []);
+
+  useEffect(() => {
+    // Skip processing if initialData is an empty object (default value)
+    if (initialData && Object.keys(initialData).length > 0) {
       const updatedData = { ...initialData };
       
       if (initialData.manufacturing_date) {
@@ -50,22 +60,42 @@ function BatchForm({ initialData = {}, onSubmit, protocols = [], isEdit = false 
       }
       
       setBatchData(updatedData);
+      // Only log in development
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Processed initialData');
+      }
     }
-  }, [initialData]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Run only once on mount, not on every initialData change
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setBatchData({
-      ...batchData,
-      [name]: value
+    
+    // Only log in development
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`Change: ${name}`);
+    }
+    
+    // Using functional update to ensure we're working with the latest state
+    setBatchData(prevData => {
+      const newData = {
+        ...prevData,
+        [name]: value
+      };
+      return newData;
     });
   };
 
   const handleDateChange = (name, date) => {
-    setBatchData({
-      ...batchData,
+    // Only log in development
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`Date change: ${name}`);
+    }
+    
+    setBatchData(prevData => ({
+      ...prevData,
       [name]: date
-    });
+    }));
   };
 
   const handleSubmit = (e) => {
@@ -79,6 +109,14 @@ function BatchForm({ initialData = {}, onSubmit, protocols = [], isEdit = false 
     
     if (submissionData.expiry_date instanceof Date) {
       submissionData.expiry_date = submissionData.expiry_date.toISOString().split('T')[0];
+    }
+    
+    // Log the exact data being submitted
+    console.log('SUBMISSION DATA:', JSON.stringify(submissionData, null, 2));
+    
+    // Only log in development
+    if (process.env.NODE_ENV === 'development') {
+      console.log('Submitting batch');
     }
     
     onSubmit(submissionData);
@@ -98,7 +136,7 @@ function BatchForm({ initialData = {}, onSubmit, protocols = [], isEdit = false 
                 fullWidth
                 label="Batch Name"
                 name="name"
-                value={batchData.name}
+                value={batchData.name || ''}
                 onChange={handleChange}
               />
             </Grid>
@@ -108,7 +146,7 @@ function BatchForm({ initialData = {}, onSubmit, protocols = [], isEdit = false 
                 fullWidth
                 label="Batch Identifier"
                 name="identifier"
-                value={batchData.identifier}
+                value={batchData.identifier || ''}
                 onChange={handleChange}
               />
             </Grid>
@@ -117,7 +155,7 @@ function BatchForm({ initialData = {}, onSubmit, protocols = [], isEdit = false 
                 fullWidth
                 label="Lot Number"
                 name="lot_number"
-                value={batchData.lot_number}
+                value={batchData.lot_number || ''}
                 onChange={handleChange}
               />
             </Grid>
@@ -126,8 +164,9 @@ function BatchForm({ initialData = {}, onSubmit, protocols = [], isEdit = false 
                 <InputLabel id="status-label">Status</InputLabel>
                 <Select
                   labelId="status-label"
+                  id="status-select"
                   name="status"
-                  value={batchData.status}
+                  value={batchData.status || 'active'}
                   onChange={handleChange}
                   label="Status"
                 >
@@ -139,17 +178,22 @@ function BatchForm({ initialData = {}, onSubmit, protocols = [], isEdit = false 
             </Grid>
             <Grid item xs={12}>
               <FormControl fullWidth required>
-                <InputLabel id="protocol-label">Protocol</InputLabel>
+                <InputLabel id="medicinal-product-label">Medicinal Product</InputLabel>
                 <Select
-                  labelId="protocol-label"
-                  name="protocol_id"
-                  value={batchData.protocol_id}
+                  labelId="medicinal-product-label"
+                  id="medicinal-product-select"
+                  name="medicinal_product_id"
+                  value={batchData.medicinal_product_id || ''}
                   onChange={handleChange}
-                  label="Protocol"
+                  label="Medicinal Product"
+                  required
                 >
-                  {protocols.map((protocol) => (
-                    <MenuItem key={protocol.id} value={protocol.id}>
-                      {protocol.title} (v{protocol.version})
+                  <MenuItem value="">
+                    <em>Select a Medicinal Product</em>
+                  </MenuItem>
+                  {medicinalProducts.map((product) => (
+                    <MenuItem key={product.id} value={product.id}>
+                      {product.name && product.name[0] ? product.name[0].productName : product.id}
                     </MenuItem>
                   ))}
                 </Select>
@@ -179,7 +223,7 @@ function BatchForm({ initialData = {}, onSubmit, protocols = [], isEdit = false 
             variant="contained" 
             color="primary" 
             type="submit"
-            disabled={!batchData.name || !batchData.identifier || !batchData.protocol_id}
+            disabled={!batchData.name || !batchData.identifier || !batchData.medicinal_product_id}
           >
             {isEdit ? 'Update Batch' : 'Create Batch'}
           </Button>

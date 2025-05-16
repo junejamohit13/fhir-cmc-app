@@ -80,8 +80,22 @@ function ProtocolList() {
         setTimeout(() => {
           setHighlightedId(null);
         }, 5000);
-        
-        // Reload protocols once
+      }
+      
+      // If we have a directly passed new protocol, add it to the list
+      // This helps avoid FHIR server search caching issues
+      if (location.state.newProtocol) {
+        console.log("Adding directly passed protocol to list:", location.state.newProtocol);
+        setProtocols(prevProtocols => {
+          // Check if the protocol is already in the list
+          const exists = prevProtocols.some(p => p.id === location.state.newProtocol.id);
+          if (!exists) {
+            return [...prevProtocols, location.state.newProtocol];
+          }
+          return prevProtocols;
+        });
+      } else {
+        // Otherwise reload all protocols
         getProtocols();
       }
       

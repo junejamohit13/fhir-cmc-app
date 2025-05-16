@@ -96,14 +96,65 @@ function BatchList() {
     }
   };
 
-  const getBatchName = (batch) =>
-    batch.deviceName?.[0]?.name || batch.lotNumber || batch.id || 'Unnamed Batch';
+  const getBatchName = (batch) => {
+    if (batch.code && batch.code.text) {
+      return batch.code.text;
+    }
+    return batch.batch?.lotNumber || batch.id || 'Unnamed Batch';
+  };
+
+  const getLotNumber = (batch) => {
+    return batch.batch?.lotNumber || 'Not specified';
+  };
+
+  const getManufacturingDate = (batch) => {
+    // Check only within batch.extension
+    if (batch.batch?.extension) {
+      const dateExt = batch.batch.extension.find(ext => 
+        ext.url === 'http://example.org/fhir/StructureDefinition/manufacturing-date'
+      );
+      if (dateExt && dateExt.valueDateTime) {
+        return dateExt.valueDateTime;
+      }
+    }
+    
+    return null;
+  };
+
+  const getExpiryDate = (batch) => {
+    // Check only the standard FHIR field
+    if (batch.batch?.expirationDate) {
+      return batch.batch.expirationDate;
+    }
+    
+    return null;
+  };
+
+  const getMedicinalProductId = (batch) => {
+    // Check in extensions for medicinal product reference
+    if (batch.extension && Array.isArray(batch.extension)) {
+      const mpExt = batch.extension.find(
+        ext => ext.url === 'http://example.org/fhir/StructureDefinition/medicinal-product'
+      );
+      
+      if (mpExt && mpExt.valueReference && mpExt.valueReference.reference) {
+        const reference = mpExt.valueReference.reference;
+        if (reference.startsWith('MedicinalProductDefinition/')) {
+          return reference.split('/')[1];
+        }
+      }
+    }
+    
+    return null;
+  };
 
   const getProtocolReference = (batch) => {
-    const ext = batch.extension?.find(
+    if (!batch.extension) return null;
+    
+    const protocolExt = batch.extension.find(
       (e) => e.url === 'http://example.org/fhir/StructureDefinition/batch-protocol'
     );
-    return ext?.valueReference?.reference ?? null;
+    return protocolExt?.valueReference?.reference ?? null;
   };
 
   /* ------------------------------------------------------------------ */
@@ -185,26 +236,30 @@ function BatchList() {
                   </Box>
 
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                    <strong>Lot Number:</strong> {batch.lotNumber || 'Not specified'}
+                    <strong>Lot Number:</strong> {getLotNumber(batch)}
                   </Typography>
 
                   <Divider sx={{ my: 1 }} />
 
                   <Typography variant="body2" color="text.secondary">
-                    <strong>Protocol:</strong> {getProtocolReference(batch) || 'Not specified'}
+                    <strong>Medicinal Product:</strong> {getMedicinalProductId(batch) ? `ID: ${getMedicinalProductId(batch)}` : 'Not specified'}
                   </Typography>
 
-                  {batch.manufactureDate && (
+                  <Typography variant="body2" color="text.secondary">
+                    <strong>Protocol:</strong> {getProtocolReference(batch) ? getProtocolReference(batch).split('/')[1] : 'Not specified'}
+                  </Typography>
+
+                  {getManufacturingDate(batch) && (
                     <Typography variant="body2" color="text.secondary">
                       <strong>Manufacturing Date:</strong>{' '}
-                      {new Date(batch.manufactureDate).toLocaleDateString()}
+                      {new Date(getManufacturingDate(batch)).toLocaleDateString()}
                     </Typography>
                   )}
 
-                  {batch.expirationDate && (
+                  {getExpiryDate(batch) && (
                     <Typography variant="body2" color="text.secondary">
                       <strong>Expiry Date:</strong>{' '}
-                      {new Date(batch.expirationDate).toLocaleDateString()}
+                      {new Date(getExpiryDate(batch)).toLocaleDateString()}
                     </Typography>
                   )}
                 </CardContent>

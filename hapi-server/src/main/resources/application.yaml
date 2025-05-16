@@ -105,7 +105,7 @@ hapi:
     ### This enables the swagger-ui at /fhir/swagger-ui/index.html as well as the /fhir/api-docs (see https://hapifhir.io/hapi-fhir/docs/server_plain/openapi.html)
     openapi_enabled: true
     ### This is the FHIR version. Choose between, DSTU2, DSTU3, R4 or R5
-    fhir_version: R4
+    fhir_version: R5
     ### Flag is false by default. This flag enables runtime installation of IG's.
     ig_runtime_upload_enabled: false
     ### This flag when enabled to true, will avail evaluate measure operations from CR Module.
@@ -181,7 +181,7 @@ hapi:
     #    expunge_enabled: true
     #    client_id_strategy: ALPHANUMERIC
     #    server_id_strategy: SEQUENTIAL_NUMERIC
-    #    fhirpath_interceptor_enabled: false
+    fhirpath_interceptor_enabled: true
     #    filter_search_enabled: true
     #    graphql_enabled: true
     narrative_enabled: false
@@ -261,18 +261,18 @@ hapi:
     #    max_binary_size: 104857600
     #    max_page_size: 200
     #    retain_cached_searches_mins: 60
-    #    reuse_cached_search_results_millis: 60000
+    reuse_cached_search_results_millis: 60000
     tester:
       home:
         name: Local Tester
         server_address: 'http://localhost:8080/fhir'
         refuse_to_fetch_third_party_urls: false
-        fhir_version: R4
+        fhir_version: R5
       global:
         name: Global Tester
         server_address: "http://hapi.fhir.org/baseR4"
         refuse_to_fetch_third_party_urls: false
-        fhir_version: R4
+        fhir_version: R5
     #    validation:
     #      requests_enabled: true
     #      responses_enabled: true

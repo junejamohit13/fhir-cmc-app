@@ -1,0 +1,100 @@
+{
+  "action": [
+    {
+      "title": "25°C/60% RH",
+      "description": "Long-term storage condition",
+      "action": [
+        {
+          "title": "0 months",
+          "timingTiming": {
+            "repeat": {
+              "boundsDuration": {
+                "value": 0,
+                "unit": "month",
+                "system": "http://unitsofmeasure.org"
+              }
+            }
+          }
+        },
+        {
+          "title": "3 months",
+          "timingTiming": {
+            "repeat": {
+              "boundsDuration": {
+                "value": 3,
+                "unit": "month",
+                "system": "http://unitsofmeasure.org"
+              }
+            }
+          }
+        },
+        {
+          "title": "6 months",
+          "timingTiming": {
+            "repeat": {
+              "boundsDuration": {
+                "value": 6,
+                "unit": "month",
+                "system": "http://unitsofmeasure.org"
+              }
+            }
+          },
+          "action": [
+            {
+              "title": "sample test",
+              "definitionCanonical": "ActivityDefinition/205"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "40°C/75% RH",
+      "description": "Accelerated storage condition",
+      "action": [
+        {
+          "title": "0 months",
+          "timingTiming": {
+            "repeat": {
+              "boundsDuration": {
+                "value": 0,
+                "unit": "month",
+                "system": "http://unitsofmeasure.org"
+              }
+            }
+          },
+          "action": [
+            {
+              "title": "Accelerated Stability Test",
+              "definitionCanonical": "ActivityDefinition/255"
+            }
+          ]
+        },
+        {
+          "title": "3 months",
+          "timingTiming": {
+            "repeat": {
+              "boundsDuration": {
+                "value": 3,
+                "unit": "month",
+                "system": "http://unitsofmeasure.org"
+              }
+            }
+          }
+        },
+        {
+          "title": "6 months",
+          "timingTiming": {
+            "repeat": {
+              "boundsDuration": {
+                "value": 6,
+                "unit": "month",
+                "system": "http://unitsofmeasure.org"
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+} 

@@ -26,9 +26,7 @@ function CreateProtocol() {
     description: '',
     status: 'active',
     date: new Date().toISOString().split('T')[0],
-    subjectReference: {
-      reference: ''
-    },
+    medicinal_product_id: '',
     note: [{ text: '' }],
     extension: [
       {
@@ -78,8 +76,14 @@ function CreateProtocol() {
       setError(null);
       const response = await createProtocol(protocolData);
       
-      // Navigate back to the protocols list with a state flag to trigger refresh
-      navigate('/protocols', { state: { refresh: true, newProtocolId: response.id } });
+      // Pass the newly created protocol directly to avoid FHIR search caching issues
+      navigate('/protocols', { 
+        state: { 
+          refresh: true, 
+          newProtocolId: response.id,
+          newProtocol: response // Pass the complete protocol to add to the list
+        } 
+      });
     } catch (error) {
       console.error('Error creating protocol:', error);
       setError('Failed to create protocol. Please check your data and try again.');

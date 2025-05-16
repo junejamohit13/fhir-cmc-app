@@ -443,7 +443,8 @@ function ShareProtocolDialog({ open, onClose, protocolId, protocolTitle, actions
                         )}
                         
                         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-                          Note: CRO will be able to add test results for these batches but will not modify batch data.
+                          Note: Only batches linked to the same medicinal product as this protocol are shown.
+                          CRO will be able to add test results for these batches but will not modify batch data.
                         </Typography>
                       </>
                     )}

@@ -1,0 +1,14 @@
+{
+  "topic": [
+    {
+      "coding": [
+        {
+          "system": "http://example.org/fhir/stability-test-types",
+          "code": "Accelerated",
+          "display": "Accelerated Stability Test"
+        }
+      ]
+    }
+  ],
+  "description": "Accelerated stability test for sample protocol"
+} 

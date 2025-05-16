@@ -18,6 +18,7 @@ import EditOrganization from './pages/EditOrganization';
 // New Stability Testing Pages
 import TestList from './pages/TestList';
 import CreateTest from './pages/CreateTest';
+import CreateEnhancedTest from './pages/CreateEnhancedTest';
 import TestDetail from './pages/TestDetail';
 import EditTest from './pages/EditTest';
 import BatchList from './pages/BatchList';
@@ -25,6 +26,10 @@ import BatchDetail from './pages/BatchDetail';
 import CreateBatch from './pages/CreateBatch';
 import ResultList from './pages/ResultList';
 import CreateResult from './pages/CreateResult';
+
+// Medicinal Product Pages
+import MedicinalProductList from './pages/MedicinalProductList';
+import CreateMedicinalProduct from './pages/CreateMedicinalProduct';
 
 // Components
 import AppLayout from './components/AppLayout';
@@ -60,9 +65,14 @@ function App() {
             <Route path="/organizations/new" element={<CreateOrganization />} />
             <Route path="/organizations/:id/edit" element={<EditOrganization />} />
             
+            {/* Medicinal Product Routes */}
+            <Route path="/medicinal-products" element={<MedicinalProductList />} />
+            <Route path="/medicinal-products/create" element={<CreateMedicinalProduct />} />
+            
             {/* Stability Test Routes */}
             <Route path="/tests" element={<TestList />} />
             <Route path="/tests/create" element={<CreateTest />} />
+            <Route path="/tests/enhanced/create" element={<CreateEnhancedTest />} />
             <Route path="/tests/:id" element={<TestDetail />} />
             <Route path="/tests/:id/edit" element={<EditTest />} />
             

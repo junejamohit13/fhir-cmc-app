@@ -6,6 +6,7 @@ import requests
 import os
 import json
 from datetime import datetime
+import uuid
 app = FastAPI(title="Protocol Management API")
 
 # Configure CORS
@@ -80,7 +81,7 @@ class TestDefinitionCreate(BaseModel):
 class BatchCreate(BaseModel):
     name: str
     identifier: str
-    protocol_id: str
+    protocol_id: Optional[str] = None
     medicinal_product_id: Optional[str] = None
     lot_number: Optional[str] = None
     manufacturing_date: Optional[str] = None
@@ -118,6 +119,43 @@ class ObservationDefinitionCreate(BaseModel):
     reference_range: Optional[Dict[str, Any]] = None  # Min, max, etc.
     protocol_id: Optional[str] = None  # Link to protocol
     timepoint_id: Optional[str] = None  # Link to specific timepoint in protocol
+
+class SpecimenDefinitionCreate(BaseModel):
+    """Model for creating specimen definitions"""
+    title: str
+    description: Optional[str] = None
+    type_code: str  # e.g., "stability-sample"
+    type_display: Optional[str] = None
+    container_type: Optional[str] = None  # e.g., "Plastic vial"
+    container_material: Optional[str] = None
+    minimum_volume: Optional[float] = None
+    minimum_volume_unit: Optional[str] = None  # e.g., "mL"
+    temperature: Optional[float] = None
+    temperature_unit: Optional[str] = "C"  # Default to Celsius
+    temperature_qualifier: Optional[str] = None  # e.g., "Room Temperature (25°C)"
+    protocol_id: Optional[str] = None  # Link to protocol
+
+class EnhancedTestDefinitionCreate(BaseModel):
+    """Model for creating tests with the full FHIR hierarchy"""
+    # Basic ActivityDefinition fields
+    title: str
+    description: str
+    kind: str = "Task"  # Most stability tests are represented as tasks to perform
+    status: str = "active"
+    
+    # Test specifics
+    test_type: str  # e.g. Assay, Degradation, etc.
+    test_subtype: Optional[str] = None  # e.g. Degs1, Mean, etc.
+    protocol_id: str  # The PlanDefinition this test belongs to
+    timepoint: Optional[str] = None  # e.g., "0-months", "3-months", etc.
+    
+    # Parameters and criteria
+    parameters: Optional[Dict[str, Any]] = None  # Additional test parameters
+    acceptance_criteria: Optional[Dict[str, Any]] = None  # Test acceptance criteria
+    
+    # Related resources - these will be created if provided
+    observation_definitions: Optional[List[ObservationDefinitionCreate]] = None
+    specimen_definition: Optional[SpecimenDefinitionCreate] = None
 
 @app.get("/")
 def read_root():
@@ -189,9 +227,18 @@ async def create_protocol(protocol: PlanDefinitionCreate):
             medicinal_product_id = protocol_data["medicinal_product_id"]
             del protocol_data["medicinal_product_id"]
             
-            # Add subject reference to medicinal product if provided
+            # Add medicinal product reference using extension instead of subject field
+            # subject field is getting stripped by FHIR server validation
             if medicinal_product_id:
-                protocol_data["subject"] = {
+                protocol_data["extension"].append({
+                    "url": "http://example.org/fhir/StructureDefinition/medicinal-product",
+                    "valueReference": {
+                        "reference": f"MedicinalProductDefinition/{medicinal_product_id}"
+                    }
+                })
+                
+                # Set the subjectReference field according to FHIR spec
+                protocol_data["subjectReference"] = {
                     "reference": f"MedicinalProductDefinition/{medicinal_product_id}"
                 }
         
@@ -285,9 +332,44 @@ async def update_protocol(protocol_id: str, protocol_update: PlanDefinitionUpdat
         if "medicinal_product_id" in update_data:
             medicinal_product_id = update_data.pop("medicinal_product_id")
             if medicinal_product_id:
-                existing_protocol["subject"] = {
+                # Add medicinal product reference using extension
+                # Check if we already have a medicinal product extension
+                has_extension = False
+                for i, ext in enumerate(existing_protocol.get("extension", [])):
+                    if ext.get("url") == "http://example.org/fhir/StructureDefinition/medicinal-product":
+                        # Update existing extension
+                        existing_protocol["extension"][i] = {
+                            "url": "http://example.org/fhir/StructureDefinition/medicinal-product",
+                            "valueReference": {
+                                "reference": f"MedicinalProductDefinition/{medicinal_product_id}"
+                            }
+                        }
+                        has_extension = True
+                        break
+                
+                if not has_extension:
+                    # Add new extension
+                    existing_protocol.setdefault("extension", []).append({
+                        "url": "http://example.org/fhir/StructureDefinition/medicinal-product",
+                        "valueReference": {
+                            "reference": f"MedicinalProductDefinition/{medicinal_product_id}"
+                        }
+                    })
+                
+                # Set the subjectReference field according to FHIR spec
+                existing_protocol["subjectReference"] = {
                     "reference": f"MedicinalProductDefinition/{medicinal_product_id}"
                 }
+            else:
+                # Remove the medicinal product reference if it exists
+                existing_protocol["extension"] = [
+                    ext for ext in existing_protocol.get("extension", []) 
+                    if ext.get("url") != "http://example.org/fhir/StructureDefinition/medicinal-product"
+                ]
+                
+                # Remove the subjectReference if it exists
+                if "subjectReference" in existing_protocol:
+                    del existing_protocol["subjectReference"]
         
         # Remove these from update_data since they're not part of FHIR PlanDefinition
         if "sponsor_name" in update_data:
@@ -396,13 +478,41 @@ async def delete_protocol(protocol_id: str):
 async def get_organizations():
     """Get all organizations"""
     try:
-        response = requests.get(
-            f"{FHIR_SERVER_URL}/Organization",
-            headers={"Accept": "application/fhir+json"}
-        )
-        response.raise_for_status()
-        return response.json()
-    except requests.RequestException as e:
+        try:
+            # Try to get organizations directly
+            response = requests.get(
+                f"{FHIR_SERVER_URL}/Organization",
+                headers={"Accept": "application/fhir+json"}
+            )
+            response.raise_for_status()
+            response_data = response.json()
+            
+            # Ensure the response is a proper Bundle with entry array
+            if response_data.get("resourceType") == "Bundle":
+                # Forcibly add an empty entry array if it's missing
+                if "entry" not in response_data or response_data["entry"] is None:
+                    response_data["entry"] = []
+            
+            return response_data
+        except requests.RequestException as inner_e:
+            # If the request fails, check if it's due to version mismatch
+            print(f"Error fetching organizations: {str(inner_e)}")
+            
+            # Return an empty bundle to avoid breaking the frontend
+            empty_bundle = {
+                "resourceType": "Bundle",
+                "type": "searchset",
+                "total": 0,
+                "entry": []
+            }
+            
+            # Add required metadata fields
+            empty_bundle["id"] = str(uuid.uuid4())
+            empty_bundle["meta"] = {"lastUpdated": datetime.now().isoformat()}
+            empty_bundle["link"] = [{"relation": "self", "url": f"{FHIR_SERVER_URL}/Organization"}]
+            
+            return empty_bundle
+    except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch organizations: {str(e)}")
 
 @app.post("/organizations")
@@ -1474,6 +1584,277 @@ async def create_test(test: TestDefinitionCreate):
         
         raise HTTPException(status_code=500, detail=f"Failed to create test: {error_message}")
 
+@app.post("/enhanced-tests")
+async def create_enhanced_test(test: EnhancedTestDefinitionCreate):
+    """
+    Create a new stability test using the full FHIR resource hierarchy:
+    - ActivityDefinition: the main test definition
+    - ObservationDefinition(s): defines what measurements to take
+    - SpecimenDefinition: defines what samples are needed
+    
+    This endpoint creates all resources and links them together.
+    """
+    try:
+        print(f"Creating enhanced test with data: {test.dict(exclude_none=True)}")
+        created_resources = {}
+        
+        # Step 1: Create ObservationDefinition resources if provided
+        observation_refs = []
+        if test.observation_definitions:
+            for obs_def in test.observation_definitions:
+                # Create each observation definition
+                obs_def_with_protocol = obs_def.copy()
+                if not obs_def_with_protocol.protocol_id:
+                    obs_def_with_protocol.protocol_id = test.protocol_id
+                
+                try:
+                    obs_response = await create_observation_definition(obs_def_with_protocol)
+                    obs_id = obs_response.get("id")
+                    if obs_id:
+                        observation_refs.append({
+                            "reference": f"ObservationDefinition/{obs_id}",
+                            "display": obs_def.title
+                        })
+                        created_resources[f"ObservationDefinition/{obs_id}"] = obs_response
+                except Exception as obs_error:
+                    print(f"Error creating ObservationDefinition: {str(obs_error)}")
+                    # Continue with other definitions
+            
+            print(f"Created {len(observation_refs)} ObservationDefinition resources")
+        
+        # Step 2: Create SpecimenDefinition if provided
+        specimen_ref = None
+        if test.specimen_definition:
+            specimen_def = test.specimen_definition.copy()
+            if not specimen_def.protocol_id:
+                specimen_def.protocol_id = test.protocol_id
+                
+            try:
+                specimen_response = await create_specimen_definition(specimen_def)
+                specimen_id = specimen_response.get("id")
+                if specimen_id:
+                    specimen_ref = {
+                        "reference": f"SpecimenDefinition/{specimen_id}",
+                        "display": specimen_def.title
+                    }
+                    created_resources[f"SpecimenDefinition/{specimen_id}"] = specimen_response
+                    print(f"Created SpecimenDefinition with id: {specimen_id}")
+            except Exception as specimen_error:
+                print(f"Error creating SpecimenDefinition: {str(specimen_error)}")
+                # Continue without specimen definition
+        
+        # Step 3: Create the main ActivityDefinition (test definition)
+        activity_data = {
+            "resourceType": "ActivityDefinition",
+            "name": test.title.replace(" ", "_").lower(),
+            "title": test.title,
+            "status": test.status,
+            "description": test.description,
+            "kind": test.kind,
+            "topic": [
+                {
+                    "coding": [
+                        {
+                            "system": "http://example.org/fhir/stability-test-types",
+                            "code": test.test_type,
+                            "display": f"Stability Test {test.test_type}"
+                        }
+                    ]
+                }
+            ],
+            "extension": [
+                {
+                    "url": "http://example.org/fhir/StructureDefinition/stability-test-protocol",
+                    "valueReference": {
+                        "reference": f"PlanDefinition/{test.protocol_id}"
+                    }
+                },
+                {
+                    "url": "http://example.org/fhir/StructureDefinition/stability-test-type",
+                    "valueString": test.test_type
+                }
+            ]
+        }
+        
+        # Add test subtype if provided
+        if test.test_subtype:
+            activity_data["extension"].append({
+                "url": "http://example.org/fhir/StructureDefinition/stability-test-subtype",
+                "valueString": test.test_subtype
+            })
+        
+        # Add timepoint if provided
+        if test.timepoint:
+            activity_data["extension"].append({
+                "url": "http://example.org/fhir/StructureDefinition/stability-test-timepoint",
+                "valueString": test.timepoint
+            })
+            
+            # Remove redundant timing information from ActivityDefinition
+            # The timing should only be in the PlanDefinition, not duplicated here
+            
+        # Add parameters if provided
+        if test.parameters:
+            activity_data["extension"].append({
+                "url": "http://example.org/fhir/StructureDefinition/stability-test-parameters",
+                "valueString": json.dumps(test.parameters)
+            })
+            
+        # Add acceptance criteria if provided
+        if test.acceptance_criteria:
+            activity_data["extension"].append({
+                "url": "http://example.org/fhir/StructureDefinition/stability-test-acceptance-criteria",
+                "valueString": json.dumps(test.acceptance_criteria)
+            })
+        
+        # Add links to ObservationDefinitions using extensions instead of observationResultRequirement
+        if observation_refs:
+            activity_data["extension"].append({
+                "url": "http://example.org/fhir/StructureDefinition/observation-definitions",
+                "extension": [
+                    {
+                        "url": "reference",
+                        "valueReference": ref
+                    } for ref in observation_refs
+                ]
+            })
+        
+        # Add link to SpecimenDefinition using extension instead of specimenRequirement
+        if specimen_ref:
+            activity_data["extension"].append({
+                "url": "http://example.org/fhir/StructureDefinition/specimen-definition",
+                "valueReference": specimen_ref
+            })
+        
+        # Create the ActivityDefinition
+        activity_response = requests.post(
+            f"{FHIR_SERVER_URL}/ActivityDefinition",
+            json=activity_data,
+            headers={
+                "Content-Type": "application/fhir+json",
+                "Accept": "application/fhir+json"
+            }
+        )
+        activity_response.raise_for_status()
+        activity_result = activity_response.json()
+        activity_id = activity_result.get("id")
+        
+        if activity_id:
+            created_resources[f"ActivityDefinition/{activity_id}"] = activity_result
+            print(f"Created ActivityDefinition with id: {activity_id}")
+        
+        # Step 4: Update the PlanDefinition to include this test in its actions if needed
+        try:
+            protocol_response = requests.get(
+                f"{FHIR_SERVER_URL}/PlanDefinition/{test.protocol_id}",
+                headers={"Accept": "application/fhir+json"}
+            )
+            protocol_response.raise_for_status()
+            protocol = protocol_response.json()
+            
+            # Check if we need to add this as an action
+            actions = protocol.get("action", [])
+            action_exists = False
+            
+            for action in actions:
+                # Check if this action references our new ActivityDefinition
+                def_canonical = action.get("definitionCanonical")
+                if def_canonical and def_canonical == f"ActivityDefinition/{activity_id}":
+                    action_exists = True
+                    break
+                    
+                # Also check for timepoint match if provided
+                if test.timepoint and action.get("title") == test.timepoint:
+                    # If we're adding to an existing timepoint action, see if we need to add our test
+                    action_actions = action.get("action", [])
+                    for sub_action in action_actions:
+                        if sub_action.get("definitionCanonical") == f"ActivityDefinition/{activity_id}":
+                            action_exists = True
+                            break
+            
+            if not action_exists and activity_id:
+                if test.timepoint:
+                    # Try to find a matching timepoint action to add this to
+                    timepoint_action = None
+                    for i, action in enumerate(actions):
+                        if action.get("title") == test.timepoint:
+                            timepoint_action = action
+                            timepoint_idx = i
+                            break
+                    
+                    if timepoint_action:
+                        # Add this test to the existing timepoint action
+                        if "action" not in timepoint_action:
+                            timepoint_action["action"] = []
+                            
+                        timepoint_action["action"].append({
+                            "title": test.title,
+                            "definitionCanonical": f"ActivityDefinition/{activity_id}"
+                        })
+                        
+                        # Update the action in the protocol
+                        protocol["action"][timepoint_idx] = timepoint_action
+                    else:
+                        # Create a new timepoint action with this test
+                        protocol["action"].append({
+                            "title": test.timepoint,
+                            "timingTiming": {
+                                "repeat": {
+                                    "boundsDuration": {
+                                        "value": int(test.timepoint.split("-")[0]) if "-" in test.timepoint else 0,
+                                        "unit": "months"
+                                    }
+                                }
+                            },
+                            "action": [
+                                {
+                                    "title": test.title,
+                                    "definitionCanonical": f"ActivityDefinition/{activity_id}"
+                                }
+                            ]
+                        })
+                else:
+                    # Add as a top-level action
+                    protocol["action"].append({
+                        "title": test.title,
+                        "definitionCanonical": f"ActivityDefinition/{activity_id}"
+                    })
+                
+                # Update the protocol
+                update_response = requests.put(
+                    f"{FHIR_SERVER_URL}/PlanDefinition/{test.protocol_id}",
+                    json=protocol,
+                    headers={
+                        "Content-Type": "application/fhir+json",
+                        "Accept": "application/fhir+json"
+                    }
+                )
+                update_response.raise_for_status()
+                created_resources[f"PlanDefinition/{test.protocol_id}"] = "updated to include test"
+                print(f"Updated PlanDefinition/{test.protocol_id} to include the new test")
+        except Exception as protocol_error:
+            print(f"Warning: Failed to update protocol with test action: {str(protocol_error)}")
+            # Continue without updating protocol
+        
+        # Return a summary of all created resources
+        return {
+            "test_id": activity_id,
+            "resources_created": len(created_resources),
+            "resources": created_resources
+        }
+        
+    except Exception as e:
+        error_message = str(e)
+        print(f"Error creating enhanced test: {error_message}")
+        if hasattr(e, 'response') and e.response:
+            try:
+                error_detail = e.response.json()
+                error_message = json.dumps(error_detail)
+            except:
+                error_message = e.response.text
+        
+        raise HTTPException(status_code=500, detail=f"Failed to create enhanced test: {error_message}")
+
 @app.get("/tests")
 async def get_tests(protocol_id: Optional[str] = None):
     """Get all stability test definitions, optionally filtered by protocol ID"""
@@ -1565,10 +1946,17 @@ async def get_test(test_id: str):
 async def create_batch(batch: BatchCreate):
     """Create a new test batch using FHIR Medication resource"""
     try:
-        # Convert to FHIR Medication
+        # Convert to FHIR Medication with proper structure
         batch_data = {
             "resourceType": "Medication",
             "code": {
+                "coding": [
+                    {
+                        "system": "http://example.org/stability-batches",
+                        "code": "stability-batch",
+                        "display": "Stability Test Batch"
+                    }
+                ],
                 "text": batch.name
             },
             "status": batch.status,
@@ -1578,43 +1966,31 @@ async def create_batch(batch: BatchCreate):
                     "value": batch.identifier
                 }
             ],
-            "lotNumber": batch.lot_number,
-            # Add dates in extension since Medication doesn't have direct date fields
-            "extension": [
-                {
-                    "url": "http://example.org/fhir/StructureDefinition/batch-protocol",
-                    "valueReference": {
-                        "reference": f"PlanDefinition/{batch.protocol_id}"
-                    }
-                },
-                {
-                    "url": "http://example.org/fhir/StructureDefinition/manufacturing-date",
-                    "valueDateTime": batch.manufacturing_date
-                },
-                {
-                    "url": "http://example.org/fhir/StructureDefinition/expiry-date",
-                    "valueDateTime": batch.expiry_date
-                }
-            ]
+            "batch": {
+                "lotNumber": batch.lot_number,
+                "expirationDate": batch.expiry_date,
+                "extension": []
+            },
+            "extension": []
         }
+        
+        # Add manufacturing date as extension in batch
+        if batch.manufacturing_date:
+            batch_data["batch"]["extension"].append({
+                "url": "http://example.org/fhir/StructureDefinition/manufacturing-date",
+                "valueDateTime": batch.manufacturing_date
+            })
         
         # Add reference to medicinal product if provided
         if batch.medicinal_product_id:
+            # Use extension for MedicinalProductDefinition reference
             batch_data["extension"].append({
                 "url": "http://example.org/fhir/StructureDefinition/medicinal-product",
                 "valueReference": {
-                    "reference": f"MedicinalProductDefinition/{batch.medicinal_product_id}"
+                    "reference": f"MedicinalProductDefinition/{batch.medicinal_product_id}",
+                    "display": "Medicinal Product Definition"
                 }
             })
-            
-            # Also set it as ingredient to comply with FHIR structure
-            batch_data["ingredient"] = [
-                {
-                    "itemReference": {
-                        "reference": f"MedicinalProductDefinition/{batch.medicinal_product_id}"
-                    }
-                }
-            ]
         
         response = requests.post(
             f"{FHIR_SERVER_URL}/Medication",
@@ -1644,7 +2020,26 @@ async def get_batches(protocol_id: Optional[str] = None):
     """Get all batches (Medication resources), optionally filtered by protocol ID"""
     try:
         if protocol_id:
-            # Get all Medications first
+            # First, get the protocol to find its medicinal product
+            medicinal_product_id = None
+            try:
+                protocol_response = requests.get(
+                    f"{FHIR_SERVER_URL}/PlanDefinition/{protocol_id}",
+                    headers={"Accept": "application/fhir+json"}
+                )
+                protocol_response.raise_for_status()
+                protocol = protocol_response.json()
+                
+                # Check if protocol has a subject reference to medicinal product
+                if "subjectReference" in protocol and "reference" in protocol["subjectReference"]:
+                    ref = protocol["subjectReference"]["reference"]
+                    if ref.startswith("MedicinalProductDefinition/"):
+                        medicinal_product_id = ref.split("/")[1]
+                        print(f"Found medicinal product ID in protocol: {medicinal_product_id}")
+            except Exception as e:
+                print(f"Error getting protocol medicinal product: {str(e)}")
+            
+            # Get all Medications
             response = requests.get(
                 f"{FHIR_SERVER_URL}/Medication",
                 headers={"Accept": "application/fhir+json"}
@@ -1652,20 +2047,39 @@ async def get_batches(protocol_id: Optional[str] = None):
             response.raise_for_status()
             all_medications = response.json()
             
-            # Filter medications by protocol_id in the extension
+            # Filter medications by medicinal_product_id or direct protocol reference
             if all_medications and all_medications.get("resourceType") == "Bundle" and all_medications.get("entry"):
                 filtered_entries = []
                 
                 for entry in all_medications["entry"]:
                     medication = entry.get("resource", {})
-                    protocol_reference = None
+                    include_entry = False
                     
-                    # Check for protocol reference in extensions
+                    # First check for direct protocol reference (backward compatibility)
                     for ext in medication.get("extension", []):
                         if ext.get("url") == "http://example.org/fhir/StructureDefinition/batch-protocol":
                             if ext.get("valueReference", {}).get("reference") == f"PlanDefinition/{protocol_id}":
-                                filtered_entries.append(entry)
+                                include_entry = True
                                 break
+                    
+                    # If not included yet and we have a medicinal product ID, check for that
+                    if not include_entry and medicinal_product_id:
+                        # Check medicinal product reference in extensions
+                        for ext in medication.get("extension", []):
+                            if ext.get("url") == "http://example.org/fhir/StructureDefinition/medicinal-product":
+                                if ext.get("valueReference", {}).get("reference") == f"MedicinalProductDefinition/{medicinal_product_id}":
+                                    include_entry = True
+                                    break
+                        
+                        # Also check ingredient references
+                        if not include_entry and "ingredient" in medication:
+                            for ingredient in medication["ingredient"]:
+                                if "itemReference" in ingredient and ingredient["itemReference"].get("reference") == f"MedicinalProductDefinition/{medicinal_product_id}":
+                                    include_entry = True
+                                    break
+                    
+                    if include_entry:
+                        filtered_entries.append(entry)
                 
                 # Return filtered bundle
                 filtered_bundle = {
@@ -2092,7 +2506,7 @@ async def create_medicinal_product(product: MedicinalProductCreate):
         }
         
         # Add route of administration if provided
-        if product.route_of_administration:
+        if product.route_of_administration and len(product.route_of_administration) > 0:
             product_data["route"] = []
             for route in product.route_of_administration:
                 product_data["route"].append({
@@ -2144,9 +2558,32 @@ async def get_medicinal_products():
             headers={"Accept": "application/fhir+json"}
         )
         response.raise_for_status()
-        return response.json()
+        response_data = response.json()
+        
+        # Ensure the response is a proper Bundle with entry array
+        if response_data.get("resourceType") == "Bundle":
+            # Forcibly add an empty entry array if it's missing
+            if "entry" not in response_data or response_data["entry"] is None:
+                response_data["entry"] = []
+        
+        return response_data
     except requests.RequestException as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch medicinal products: {str(e)}")
+        # Create an empty bundle with proper structure
+        empty_bundle = {
+            "resourceType": "Bundle",
+            "type": "searchset",
+            "total": 0,
+            "entry": []
+        }
+        
+        # Add required metadata fields
+        empty_bundle["id"] = str(uuid.uuid4())
+        empty_bundle["meta"] = {"lastUpdated": datetime.now().isoformat()}
+        empty_bundle["link"] = [{"relation": "self", "url": f"{FHIR_SERVER_URL}/MedicinalProductDefinition"}]
+        
+        # Log the error but return an empty bundle
+        print(f"Error fetching medicinal products: {str(e)}")
+        return empty_bundle
 
 @app.get("/medicinal-products/{product_id}")
 async def get_medicinal_product(product_id: str):
@@ -2321,6 +2758,261 @@ async def get_observation_definition(obs_def_id: str):
         if e.response and e.response.status_code == 404:
             raise HTTPException(status_code=404, detail=f"Observation definition with ID {obs_def_id} not found")
         raise HTTPException(status_code=500, detail=f"Failed to fetch observation definition: {str(e)}")
+
+# SpecimenDefinition endpoints
+@app.post("/specimen-definitions")
+async def create_specimen_definition(specimen_def: SpecimenDefinitionCreate):
+    """Create a new specimen definition using FHIR SpecimenDefinition resource"""
+    try:
+        # Convert to FHIR SpecimenDefinition
+        specimen_data = {
+            "resourceType": "SpecimenDefinition",
+            "status": "active",
+            "typeCollected": {
+                "coding": [
+                    {
+                        "system": "http://example.org/specimen-types",
+                        "code": specimen_def.type_code,
+                        "display": specimen_def.type_display or specimen_def.title
+                    }
+                ],
+                "text": specimen_def.title
+            },
+            "typeTested": [
+                {
+                    "preference": "preferred",
+                    "container": {
+                        "material": {
+                            "text": specimen_def.container_material or specimen_def.container_type or "Not specified"
+                        }
+                    }
+                }
+            ]
+        }
+        
+        # Add description if provided
+        if specimen_def.description:
+            specimen_data["description"] = specimen_def.description
+            
+        # Add container type if provided
+        if specimen_def.container_type:
+            specimen_data["typeTested"][0]["container"]["type"] = {
+                "text": specimen_def.container_type
+            }
+        
+        # Add minimum volume if provided
+        if specimen_def.minimum_volume and specimen_def.minimum_volume_unit:
+            specimen_data["typeTested"][0]["container"]["minimumVolumeQuantity"] = {
+                "value": specimen_def.minimum_volume,
+                "unit": specimen_def.minimum_volume_unit
+            }
+        
+        # Add temperature handling information if provided
+        if specimen_def.temperature_qualifier or specimen_def.temperature:
+            handling = {}
+            
+            if specimen_def.temperature_qualifier:
+                handling["temperatureQualifier"] = {
+                    "text": specimen_def.temperature_qualifier
+                }
+            
+            if specimen_def.temperature:
+                handling["temperatureRange"] = {
+                    "low": {
+                        "value": specimen_def.temperature,
+                        "unit": specimen_def.temperature_unit or "C"
+                    },
+                    "high": {
+                        "value": specimen_def.temperature,
+                        "unit": specimen_def.temperature_unit or "C"
+                    }
+                }
+            
+            specimen_data["typeTested"][0]["handling"] = [handling]
+        
+        # Add protocol reference as extension if provided
+        if specimen_def.protocol_id:
+            specimen_data["extension"] = [{
+                "url": "http://example.org/fhir/StructureDefinition/protocol-reference",
+                "valueReference": {
+                    "reference": f"PlanDefinition/{specimen_def.protocol_id}"
+                }
+            }]
+        
+        response = requests.post(
+            f"{FHIR_SERVER_URL}/SpecimenDefinition",
+            json=specimen_data,
+            headers={
+                "Content-Type": "application/fhir+json",
+                "Accept": "application/fhir+json"
+            }
+        )
+        response.raise_for_status()
+        
+        # Return the created specimen definition
+        return response.json()
+    except requests.RequestException as e:
+        error_message = str(e)
+        if hasattr(e, 'response') and e.response:
+            try:
+                error_detail = e.response.json()
+                error_message = json.dumps(error_detail)
+            except:
+                error_message = e.response.text
+        
+        raise HTTPException(status_code=500, detail=f"Failed to create specimen definition: {error_message}")
+
+@app.get("/specimen-definitions")
+async def get_specimen_definitions(protocol_id: Optional[str] = None):
+    """Get all specimen definitions, optionally filtered by protocol ID"""
+    try:
+        # Get all definitions
+        response = requests.get(
+            f"{FHIR_SERVER_URL}/SpecimenDefinition",
+            headers={"Accept": "application/fhir+json"}
+        )
+        response.raise_for_status()
+        all_defs = response.json()
+        
+        # If protocol_id is provided, filter by protocol reference
+        if protocol_id and all_defs and all_defs.get("resourceType") == "Bundle" and all_defs.get("entry"):
+            filtered_entries = []
+            
+            for entry in all_defs["entry"]:
+                specimen_def = entry.get("resource", {})
+                
+                # Check for protocol reference in extensions
+                for ext in specimen_def.get("extension", []):
+                    if ext.get("url") == "http://example.org/fhir/StructureDefinition/protocol-reference":
+                        if ext.get("valueReference", {}).get("reference") == f"PlanDefinition/{protocol_id}":
+                            filtered_entries.append(entry)
+                            break
+            
+            # Return filtered bundle
+            filtered_bundle = {
+                "resourceType": "Bundle",
+                "type": "searchset",
+                "total": len(filtered_entries),
+                "entry": filtered_entries
+            }
+            return filtered_bundle
+        
+        return all_defs
+    except requests.RequestException as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch specimen definitions: {str(e)}")
+
+@app.get("/specimen-definitions/{specimen_def_id}")
+async def get_specimen_definition(specimen_def_id: str):
+    """Get a specific specimen definition by ID"""
+    try:
+        response = requests.get(
+            f"{FHIR_SERVER_URL}/SpecimenDefinition/{specimen_def_id}",
+            headers={"Accept": "application/fhir+json"}
+        )
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException as e:
+        if e.response and e.response.status_code == 404:
+            raise HTTPException(status_code=404, detail=f"Specimen definition with ID {specimen_def_id} not found")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch specimen definition: {str(e)}")
+
+async def get_observation_definitions_for_test(test_id: str):
+    """Get all ObservationDefinitions linked to a specific test (ActivityDefinition)"""
+    try:
+        # First get the ActivityDefinition
+        response = requests.get(
+            f"{FHIR_SERVER_URL}/ActivityDefinition/{test_id}",
+            headers={"Accept": "application/fhir+json"}
+        )
+        response.raise_for_status()
+        test = response.json()
+        
+        # Look for our custom extension with ObservationDefinition references
+        observation_refs = []
+        for extension in test.get("extension", []):
+            if extension.get("url") == "http://example.org/fhir/StructureDefinition/observation-definitions":
+                # Extract references from nested extensions
+                for nested_ext in extension.get("extension", []):
+                    if nested_ext.get("url") == "reference" and nested_ext.get("valueReference"):
+                        ref = nested_ext.get("valueReference").get("reference")
+                        if ref and ref.startswith("ObservationDefinition/"):
+                            observation_refs.append(ref.split("/")[1])
+        
+        if not observation_refs:
+            return []
+            
+        # Now fetch all the referenced ObservationDefinitions
+        results = []
+        for obs_id in observation_refs:
+            try:
+                obs_response = requests.get(
+                    f"{FHIR_SERVER_URL}/ObservationDefinition/{obs_id}",
+                    headers={"Accept": "application/fhir+json"}
+                )
+                obs_response.raise_for_status()
+                results.append(obs_response.json())
+            except Exception as e:
+                print(f"Error fetching ObservationDefinition {obs_id}: {str(e)}")
+                
+        return results
+    except Exception as e:
+        print(f"Error getting ObservationDefinitions for test {test_id}: {str(e)}")
+        return []
+
+async def get_specimen_definition_for_test(test_id: str):
+    """Get the SpecimenDefinition linked to a specific test (ActivityDefinition)"""
+    try:
+        # First get the ActivityDefinition
+        response = requests.get(
+            f"{FHIR_SERVER_URL}/ActivityDefinition/{test_id}",
+            headers={"Accept": "application/fhir+json"}
+        )
+        response.raise_for_status()
+        test = response.json()
+        
+        # Look for our custom extension with SpecimenDefinition reference
+        for extension in test.get("extension", []):
+            if extension.get("url") == "http://example.org/fhir/StructureDefinition/specimen-definition":
+                if extension.get("valueReference"):
+                    ref = extension.get("valueReference").get("reference")
+                    if ref and ref.startswith("SpecimenDefinition/"):
+                        specimen_id = ref.split("/")[1]
+                        try:
+                            specimen_response = requests.get(
+                                f"{FHIR_SERVER_URL}/SpecimenDefinition/{specimen_id}",
+                                headers={"Accept": "application/fhir+json"}
+                            )
+                            specimen_response.raise_for_status()
+                            return specimen_response.json()
+                        except Exception as e:
+                            print(f"Error fetching SpecimenDefinition {specimen_id}: {str(e)}")
+        
+        return None
+    except Exception as e:
+        print(f"Error getting SpecimenDefinition for test {test_id}: {str(e)}")
+        return None
+
+@app.get("/tests/{test_id}/observation-definitions")
+async def get_test_observation_definitions(test_id: str):
+    """Get all ObservationDefinitions linked to a specific test"""
+    try:
+        results = await get_observation_definitions_for_test(test_id)
+        return results
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get observation definitions: {str(e)}")
+
+@app.get("/tests/{test_id}/specimen-definition")
+async def get_test_specimen_definition(test_id: str):
+    """Get the SpecimenDefinition linked to a specific test"""
+    try:
+        result = await get_specimen_definition_for_test(test_id)
+        if not result:
+            raise HTTPException(status_code=404, detail=f"No specimen definition found for test {test_id}")
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get specimen definition: {str(e)}")
 
 # Run with: uvicorn main:app --reload
 if __name__ == "__main__":

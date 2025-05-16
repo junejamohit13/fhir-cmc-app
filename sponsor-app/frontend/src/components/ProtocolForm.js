@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   TextField,
@@ -19,12 +19,18 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  FormControl,
+  InputLabel,
+  Select,
+  CircularProgress,
+  FormHelperText,
 } from '@mui/material';
 import {
   ExpandMore as ExpandMoreIcon,
   Add as AddIcon,
   Delete as DeleteIcon,
 } from '@mui/icons-material';
+import { fetchMedicinalProducts } from '../services/api';
 
 function ProtocolForm({ protocolData, onChange, isEdit = false }) {
   // Ensure protocolData has all required properties with defaults
@@ -34,7 +40,7 @@ function ProtocolForm({ protocolData, onChange, isEdit = false }) {
     description: '',
     status: 'active',
     date: '',
-    subjectReference: { reference: '' },
+    medicinal_product_id: '',
     note: [{ text: '' }],
     action: [{
       title: '',
@@ -58,6 +64,46 @@ function ProtocolForm({ protocolData, onChange, isEdit = false }) {
     title: '',
     timingTiming: { repeat: { boundsDuration: { value: 0, unit: 'month', system: 'http://unitsofmeasure.org' } } },
   });
+  
+  // Add state for medicinal products
+  const [medicinalProducts, setMedicinalProducts] = useState([]);
+  const [loadingProducts, setLoadingProducts] = useState(false);
+  const [loadingError, setLoadingError] = useState(null);
+
+  // Fetch medicinal products when component mounts
+  useEffect(() => {
+    const loadMedicinalProducts = async () => {
+      try {
+        setLoadingProducts(true);
+        setLoadingError(null);
+        const response = await fetchMedicinalProducts();
+        
+        // Extract products from FHIR bundle
+        let products = [];
+        if (response && response.resourceType === 'Bundle' && response.entry) {
+          products = response.entry
+            .filter(entry => entry && entry.resource)
+            .map(entry => {
+              const resource = entry.resource;
+              return {
+                id: resource.id,
+                name: resource.name && resource.name[0] ? resource.name[0].productName : 'Unnamed Product',
+                description: resource.description || ''
+              };
+            });
+        }
+        
+        setMedicinalProducts(products);
+      } catch (error) {
+        console.error('Error loading medicinal products:', error);
+        setLoadingError('Failed to load medicinal products');
+      } finally {
+        setLoadingProducts(false);
+      }
+    };
+    
+    loadMedicinalProducts();
+  }, []);
 
   const handleBasicInfoChange = (e) => {
     const { name, value } = e.target;
@@ -67,14 +113,11 @@ function ProtocolForm({ protocolData, onChange, isEdit = false }) {
     });
   };
 
-  const handleSubjectReferenceChange = (e) => {
+  const handleMedicinalProductChange = (e) => {
     const { value } = e.target;
     onChange({
       ...safeProtocolData,
-      subjectReference: {
-        ...safeProtocolData.subjectReference,
-        reference: value,
-      },
+      medicinal_product_id: value,
     });
   };
 
@@ -291,13 +334,32 @@ function ProtocolForm({ protocolData, onChange, isEdit = false }) {
             />
           </Grid>
           <Grid item xs={12}>
-            <TextField
-              fullWidth
-              label="Subject Reference"
-              value={safeProtocolData.subjectReference?.reference || ''}
-              onChange={handleSubjectReferenceChange}
-              placeholder="MedicinalProductDefinition/example"
-            />
+            <FormControl fullWidth>
+              <InputLabel id="medicinal-product-label">Medicinal Product</InputLabel>
+              <Select
+                labelId="medicinal-product-label"
+                id="medicinal-product-select"
+                value={safeProtocolData.medicinal_product_id}
+                label="Medicinal Product"
+                onChange={handleMedicinalProductChange}
+                disabled={loadingProducts}
+                endAdornment={loadingProducts && (
+                  <CircularProgress color="inherit" size={20} sx={{ mr: 2 }} />
+                )}
+              >
+                <MenuItem value="">
+                  <em>None</em>
+                </MenuItem>
+                {medicinalProducts.map((product) => (
+                  <MenuItem key={product.id} value={product.id}>
+                    {product.name}
+                  </MenuItem>
+                ))}
+              </Select>
+              {loadingError && (
+                <FormHelperText error>{loadingError}</FormHelperText>
+              )}
+            </FormControl>
           </Grid>
         </Grid>
       </Paper>

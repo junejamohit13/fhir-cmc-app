@@ -165,14 +165,27 @@ function TestList() {
         <Typography variant="h4" component="h1">
           Stability Tests
         </Typography>
-        <Button
-          variant="contained"
-          color="primary"
-          startIcon={<AddIcon />}
-          onClick={() => navigate('/tests/create')}
-        >
-          Create New Test
-        </Button>
+        <Box>
+          <Button
+            variant="contained"
+            color="primary"
+            startIcon={<AddIcon />}
+            onClick={() => navigate('/tests/create')}
+            sx={{ mr: 2 }}
+          >
+            Create Test
+          </Button>
+          <Tooltip title="Create a test using the full FHIR resource hierarchy per HL7 dx-pq IG">
+            <Button
+              variant="contained"
+              color="secondary"
+              startIcon={<AddIcon />}
+              onClick={() => navigate('/tests/enhanced/create')}
+            >
+              Create Enhanced Test
+            </Button>
+          </Tooltip>
+        </Box>
       </Box>
 
       {error && (
@@ -190,13 +203,26 @@ function TestList() {
           <Typography variant="body1" color="text.secondary" paragraph>
             Get started by creating your first stability test definition.
           </Typography>
-          <Button
-            variant="contained"
-            startIcon={<AddIcon />}
-            onClick={() => navigate('/tests/create')}
-          >
-            Create Test
-          </Button>
+          <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2 }}>
+            <Button
+              variant="contained"
+              color="primary"
+              startIcon={<AddIcon />}
+              onClick={() => navigate('/tests/create')}
+            >
+              Create Test
+            </Button>
+            <Tooltip title="Create a test using the full FHIR resource hierarchy per HL7 dx-pq IG">
+              <Button
+                variant="contained"
+                color="secondary"
+                startIcon={<AddIcon />}
+                onClick={() => navigate('/tests/enhanced/create')}
+              >
+                Create Enhanced Test
+              </Button>
+            </Tooltip>
+          </Box>
         </Paper>
       ) : (
         <Grid container spacing={3}>

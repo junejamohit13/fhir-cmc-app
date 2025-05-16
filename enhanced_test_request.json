@@ -1,0 +1,33 @@
+{
+  "title": "sample def",
+  "description": "Accelerated stability test for sample protocol",
+  "kind": "Task",
+  "status": "active",
+  "test_type": "Accelerated",
+  "protocol_id": "3",
+  "timepoint": "0 months",
+  "parameters": {"Param1": "val1"},
+  "acceptance_criteria": {"crit1": ">95"},
+  "observation_definitions": [
+    {
+      "title": "sample",
+      "description": "sample",
+      "code": "observation1",
+      "code_display": "sample",
+      "permitted_data_type": "string",
+      "category": "laboratory"
+    }
+  ],
+  "specimen_definition": {
+    "title": "specifen dev",
+    "description": "speicmen definition",
+    "type_code": "stability-sample",
+    "type_display": "Stability Test Sample",
+    "container_type": "glass bottle",
+    "container_material": "HDPE",
+    "minimum_volume": 11.0,
+    "minimum_volume_unit": "mL",
+    "temperature": 4.0,
+    "temperature_unit": "C"
+  }
+} 

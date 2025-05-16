@@ -34,8 +34,8 @@ function ProtocolDetail() {
   const [error, setError] = useState(null);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [sharedWith, setSharedWith] = useState([]);
-  const [loadingMedicinalProduct, setLoadingMedicinalProduct] = useState(false);
   const [medicinalProduct, setMedicinalProduct] = useState(null);
+  const [loadingMedicinalProduct, setLoadingMedicinalProduct] = useState(false);
 
   useEffect(() => {
     const loadData = async () => {
@@ -49,39 +49,20 @@ function ProtocolDetail() {
         setSharedWith(sharesData);
         setError(null);
         
-        // Check for medicinal product reference in different fields
-        let medicinalProductId = null;
-        
-        // Check in subjectReference (FHIR standard way)
-        if (protocolData.subjectReference && protocolData.subjectReference.reference && 
-            protocolData.subjectReference.reference.startsWith('MedicinalProductDefinition/')) {
-          medicinalProductId = protocolData.subjectReference.reference.split('/')[1];
-        }
-        
-        // If not found in subjectReference, check in extensions (our custom way)
-        if (!medicinalProductId && protocolData.extension && Array.isArray(protocolData.extension)) {
-          const medicinalProductExt = protocolData.extension.find(
-            ext => ext.url === 'http://example.org/fhir/StructureDefinition/medicinal-product'
-          );
-          
-          if (medicinalProductExt && 
-              medicinalProductExt.valueReference && 
-              medicinalProductExt.valueReference.reference && 
-              medicinalProductExt.valueReference.reference.startsWith('MedicinalProductDefinition/')) {
-            medicinalProductId = medicinalProductExt.valueReference.reference.split('/')[1];
-          }
-        }
-        
-        // If we found a medicinal product ID in either place, fetch the product details
-        if (medicinalProductId) {
-          setLoadingMedicinalProduct(true);
-          try {
-            const productData = await fetchMedicinalProductById(medicinalProductId);
-            setMedicinalProduct(productData);
-          } catch (productError) {
-            console.error(`Error fetching medicinal product ${medicinalProductId}:`, productError);
-          } finally {
-            setLoadingMedicinalProduct(false);
+        // If the protocol has a subject reference to a medicinal product, fetch it
+        if (protocolData.subject && protocolData.subject.reference && 
+            protocolData.subject.reference.startsWith('MedicinalProductDefinition/')) {
+          const medicinalProductId = protocolData.subject.reference.split('/')[1];
+          if (medicinalProductId) {
+            setLoadingMedicinalProduct(true);
+            try {
+              const productData = await fetchMedicinalProductById(medicinalProductId);
+              setMedicinalProduct(productData);
+            } catch (productError) {
+              console.error(`Error fetching medicinal product ${medicinalProductId}:`, productError);
+            } finally {
+              setLoadingMedicinalProduct(false);
+            }
           }
         }
       } catch (error) {
@@ -94,7 +75,7 @@ function ProtocolDetail() {
 
     loadData();
   }, [id]);
-  
+
   const handleShareDialogClose = (success) => {
     setShareDialogOpen(false);
     if (success) {
@@ -115,30 +96,6 @@ function ProtocolDetail() {
       }
     }
   };
-
-  if (loading) {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
-        <CircularProgress />
-      </Box>
-    );
-  }
-
-  if (error) {
-    return (
-      <Box sx={{ mt: 4 }}>
-        <Alert severity="error">{error}</Alert>
-        <Button
-          variant="outlined"
-          startIcon={<ArrowBackIcon />}
-          onClick={() => navigate('/protocols')}
-          sx={{ mt: 2 }}
-        >
-          Back to Protocols
-        </Button>
-      </Box>
-    );
-  }
 
   if (!protocol) {
     return (
@@ -232,6 +189,38 @@ function ProtocolDetail() {
               <strong>Date:</strong> {new Date(protocol.date).toLocaleDateString()}
             </Typography>
           </Grid>
+          
+          {/* Medicinal Product Section */}
+          <Grid item xs={12}>
+            <Divider sx={{ my: 2 }} />
+            <Typography variant="subtitle1" component="div" gutterBottom>
+              <strong>Medicinal Product:</strong>
+            </Typography>
+            {loadingMedicinalProduct ? (
+              <CircularProgress size={20} sx={{ ml: 1 }} />
+            ) : medicinalProduct ? (
+              <Box>
+                <Typography variant="body1">
+                  {medicinalProduct.name && medicinalProduct.name[0] ? 
+                    medicinalProduct.name[0].productName : 'Unknown Product'}
+                </Typography>
+                {medicinalProduct.description && (
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                    {medicinalProduct.description}
+                  </Typography>
+                )}
+              </Box>
+            ) : protocol.subject && protocol.subject.reference ? (
+              <Typography variant="body1">
+                {protocol.subject.reference}
+              </Typography>
+            ) : (
+              <Typography variant="body2" color="text.secondary">
+                No medicinal product associated with this protocol
+              </Typography>
+            )}
+          </Grid>
+          
           <Grid item xs={12}>
             <Divider sx={{ my: 2 }} />
             <Typography variant="subtitle1" component="div" gutterBottom>
@@ -241,54 +230,6 @@ function ProtocolDetail() {
               {protocol.description}
             </Typography>
           </Grid>
-
-          {protocol.subjectReference && (
-            <Grid item xs={12}>
-              <Typography variant="subtitle1" component="div" gutterBottom>
-                <strong>Subject Reference:</strong>
-              </Typography>
-              <Typography variant="body1">
-                {protocol.subjectReference.reference}
-              </Typography>
-            </Grid>
-          )}
-
-          {protocol.note && protocol.note.length > 0 && (
-            <Grid item xs={12}>
-              <Typography variant="subtitle1" component="div" gutterBottom>
-                <strong>Notes:</strong>
-              </Typography>
-              <List dense>
-                {protocol.note.map((note, index) => (
-                  <ListItem key={index}>
-                    <ListItemText primary={note.text} />
-                  </ListItem>
-                ))}
-              </List>
-            </Grid>
-          )}
-
-          {protocol.extension && protocol.extension.length > 0 && (
-            <Grid item xs={12}>
-              <Typography variant="subtitle1" component="div" gutterBottom>
-                <strong>Extensions:</strong>
-              </Typography>
-              <List dense>
-                {protocol.extension.map((ext, index) => (
-                  <ListItem key={index}>
-                    <ListItemText
-                      primary={ext.url}
-                      secondary={
-                        ext.valueCodeableConcept
-                          ? ext.valueCodeableConcept.text
-                          : JSON.stringify(ext.value)
-                      }
-                    />
-                  </ListItem>
-                ))}
-              </List>
-            </Grid>
-          )}
         </Grid>
       </Paper>
 
@@ -336,54 +277,42 @@ function ProtocolDetail() {
       )}
       
       {/* Shared Organizations Section */}
-      <Box sx={{ mb: 4 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-          <Typography variant="h5" component="h2">
-            Shared With Organizations
+      {sharedWith && sharedWith.length > 0 && (
+        <Box sx={{ mb: 4 }}>
+          <Typography variant="h5" component="h2" gutterBottom>
+            Shared With
           </Typography>
-          <Button
-            variant="outlined"
-            startIcon={<ShareIcon />}
-            onClick={() => setShareDialogOpen(true)}
-            size="small"
-          >
-            Manage Sharing
-          </Button>
+          <Grid container spacing={3}>
+            {sharedWith.map((org) => (
+              <Grid item xs={12} md={4} key={org.id}>
+                <Card>
+                  <CardContent>
+                    <Typography variant="h6" gutterBottom>
+                      {org.name}
+                    </Typography>
+                    {org.url && (
+                      <Typography variant="body2" color="text.secondary">
+                        FHIR Server: {org.url}
+                      </Typography>
+                    )}
+                  </CardContent>
+                </Card>
+              </Grid>
+            ))}
+          </Grid>
         </Box>
-        
-        {sharedWith.length > 0 ? (
-          <Paper>
-            <List>
-              {sharedWith.map((org) => (
-                <ListItem key={org.id}>
-                  <ListItemText 
-                    primary={org.name} 
-                    secondary={`${org.url || "No URL specified"}`} 
-                  />
-                </ListItem>
-              ))}
-            </List>
-          </Paper>
-        ) : (
-          <Paper sx={{ p: 2 }}>
-            <Typography variant="body1" color="text.secondary" align="center">
-              This protocol is not shared with any organizations yet.
-              Click "Manage Sharing" to share it with external organizations.
-            </Typography>
-          </Paper>
-        )}
-      </Box>
-      
+      )}
+
       {/* Share Dialog */}
       <ShareProtocolDialog
         open={shareDialogOpen}
         onClose={handleShareDialogClose}
         protocolId={id}
-        protocolTitle={protocol?.title}
-        actions={protocol?.action || []}
+        protocolTitle={protocol.title}
+        actions={protocol.action || []}
       />
     </Box>
   );
 }
 
-export default ProtocolDetail;
+export default ProtocolDetail; 

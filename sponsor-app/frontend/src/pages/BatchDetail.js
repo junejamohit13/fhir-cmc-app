@@ -87,10 +87,55 @@ function BatchDetail() {
   };
 
   const getBatchName = (batch) => {
-    if (batch.deviceName && batch.deviceName.length > 0) {
-      return batch.deviceName[0].name;
+    if (batch.code && batch.code.text) {
+      return batch.code.text;
     }
-    return batch.lotNumber || batch.id || 'Unnamed Batch';
+    return batch.batch?.lotNumber || batch.id || 'Unnamed Batch';
+  };
+
+  const getLotNumber = (batch) => {
+    return batch.batch?.lotNumber || 'Not specified';
+  };
+
+  const getManufacturingDate = (batch) => {
+    // Check only within batch.extension
+    if (batch.batch?.extension) {
+      const dateExt = batch.batch.extension.find(ext => 
+        ext.url === 'http://example.org/fhir/StructureDefinition/manufacturing-date'
+      );
+      if (dateExt && dateExt.valueDateTime) {
+        return dateExt.valueDateTime;
+      }
+    }
+    
+    return null;
+  };
+
+  const getExpiryDate = (batch) => {
+    // Check only the standard FHIR field
+    if (batch.batch?.expirationDate) {
+      return batch.batch.expirationDate;
+    }
+    
+    return null;
+  };
+
+  const getMedicinalProductId = (batch) => {
+    // Check in extensions for medicinal product reference
+    if (batch.extension && Array.isArray(batch.extension)) {
+      const mpExt = batch.extension.find(
+        ext => ext.url === 'http://example.org/fhir/StructureDefinition/medicinal-product'
+      );
+      
+      if (mpExt && mpExt.valueReference && mpExt.valueReference.reference) {
+        const reference = mpExt.valueReference.reference;
+        if (reference.startsWith('MedicinalProductDefinition/')) {
+          return reference.split('/')[1];
+        }
+      }
+    }
+    
+    return null;
   };
 
   const getProtocolReference = (batch) => {
@@ -180,7 +225,7 @@ function BatchDetail() {
                 </Grid>
                 <Grid item xs={12} sm={8}>
                   <Typography variant="body2">
-                    {batch.lotNumber || 'Not specified'}
+                    {getLotNumber(batch)}
                   </Typography>
                 </Grid>
 
@@ -202,7 +247,7 @@ function BatchDetail() {
                 </Grid>
                 <Grid item xs={12} sm={8}>
                   <Typography variant="body2">
-                    {batch.manufactureDate ? new Date(batch.manufactureDate).toLocaleDateString() : 'Not specified'}
+                    {getManufacturingDate(batch) ? new Date(getManufacturingDate(batch)).toLocaleDateString() : 'Not specified'}
                   </Typography>
                 </Grid>
 
@@ -213,7 +258,26 @@ function BatchDetail() {
                 </Grid>
                 <Grid item xs={12} sm={8}>
                   <Typography variant="body2">
-                    {batch.expirationDate ? new Date(batch.expirationDate).toLocaleDateString() : 'Not specified'}
+                    {getExpiryDate(batch) ? new Date(getExpiryDate(batch)).toLocaleDateString() : 'Not specified'}
+                  </Typography>
+                </Grid>
+
+                <Grid item xs={12} sm={4}>
+                  <Typography variant="body2" color="text.secondary">
+                    Medicinal Product
+                  </Typography>
+                </Grid>
+                <Grid item xs={12} sm={8}>
+                  <Typography variant="body2">
+                    {getMedicinalProductId(batch) ? 
+                      <Button 
+                        size="small" 
+                        onClick={() => navigate(`/medicinal-products/${getMedicinalProductId(batch)}`)}
+                      >
+                        {getMedicinalProductId(batch)}
+                      </Button> : 
+                      'Not specified'
+                    }
                   </Typography>
                 </Grid>
 

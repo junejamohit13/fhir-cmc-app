@@ -13,17 +13,35 @@ import {
   List,
   ListItem,
   ListItemText,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
-import { fetchTestById, fetchProtocolById, deleteTest } from '../services/api';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import { 
+  fetchTestById, 
+  fetchProtocolById, 
+  deleteTest, 
+  fetchTestObservationDefinitions,
+  fetchTestSpecimenDefinition
+} from '../services/api';
 
 function TestDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [test, setTest] = useState(null);
   const [protocol, setProtocol] = useState(null);
+  const [observationDefinitions, setObservationDefinitions] = useState([]);
+  const [specimenDefinition, setSpecimenDefinition] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -47,6 +65,25 @@ function TestDetail() {
           console.error(`Error fetching protocol details:`, protocolError);
           // Don't fail the whole view if protocol fetch fails
         }
+      }
+      
+      // Fetch linked ObservationDefinitions and SpecimenDefinition
+      try {
+        const observationDefsData = await fetchTestObservationDefinitions(id);
+        setObservationDefinitions(observationDefsData);
+      } catch (obsError) {
+        console.error(`Error fetching observation definitions:`, obsError);
+        // Don't fail if observation definitions fetch fails
+      }
+      
+      try {
+        const specimenDefData = await fetchTestSpecimenDefinition(id);
+        setSpecimenDefinition(specimenDefData);
+      } catch (specError) {
+        if (specError.response && specError.response.status !== 404) {
+          console.error(`Error fetching specimen definition:`, specError);
+        }
+        // Don't fail if specimen definition fetch fails
       }
     } catch (error) {
       console.error(`Error fetching test details:`, error);
@@ -288,8 +325,174 @@ function TestDetail() {
           </Grid>
         </Grid>
       </Paper>
+      
+      {/* FHIR Resource Hierarchy Section */}
+      <Paper sx={{ p: 3, mb: 4 }}>
+        <Typography variant="h5" gutterBottom>
+          FHIR Resource Hierarchy
+        </Typography>
+        <Divider sx={{ mb: 2 }} />
+        
+        {/* ObservationDefinitions */}
+        <Accordion defaultExpanded={observationDefinitions.length > 0}>
+          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+            <Typography variant="h6">
+              Measurements (ObservationDefinitions)
+              {observationDefinitions.length > 0 && (
+                <Chip 
+                  label={observationDefinitions.length} 
+                  color="primary"
+                  size="small"
+                  sx={{ ml: 1 }}
+                />
+              )}
+            </Typography>
+          </AccordionSummary>
+          <AccordionDetails>
+            {observationDefinitions.length === 0 ? (
+              <Typography color="text.secondary">No measurement definitions found for this test.</Typography>
+            ) : (
+              <TableContainer>
+                <Table>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Title</TableCell>
+                      <TableCell>Description</TableCell>
+                      <TableCell>Data Type</TableCell>
+                      <TableCell>Unit</TableCell>
+                      <TableCell>Reference Range</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {observationDefinitions.map((obs) => (
+                      <TableRow key={obs.id}>
+                        <TableCell>{obs.code?.text || 'Unnamed'}</TableCell>
+                        <TableCell>{obs.description || '-'}</TableCell>
+                        <TableCell>{obs.permittedDataType?.[0] || '-'}</TableCell>
+                        <TableCell>{getObservationUnit(obs) || '-'}</TableCell>
+                        <TableCell>{getObservationRange(obs) || '-'}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            )}
+          </AccordionDetails>
+        </Accordion>
+        
+        {/* SpecimenDefinition */}
+        <Accordion defaultExpanded={!!specimenDefinition}>
+          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+            <Typography variant="h6">
+              Sample Requirements (SpecimenDefinition)
+            </Typography>
+          </AccordionSummary>
+          <AccordionDetails>
+            {!specimenDefinition ? (
+              <Typography color="text.secondary">No sample requirements defined for this test.</Typography>
+            ) : (
+              <Grid container spacing={2}>
+                <Grid item xs={12} sm={6}>
+                  <Typography variant="subtitle2">Sample Type</Typography>
+                  <Typography>{specimenDefinition.typeCollected?.text || 'Not specified'}</Typography>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Typography variant="subtitle2">Description</Typography>
+                  <Typography>{specimenDefinition.description || 'Not specified'}</Typography>
+                </Grid>
+                
+                {specimenDefinition.typeTested && specimenDefinition.typeTested.length > 0 && (
+                  <>
+                    <Grid item xs={12}>
+                      <Divider sx={{ my: 1 }} />
+                      <Typography variant="subtitle1" sx={{ mt: 1 }}>Container Details</Typography>
+                    </Grid>
+                    <Grid item xs={12} sm={6}>
+                      <Typography variant="subtitle2">Container Type</Typography>
+                      <Typography>
+                        {specimenDefinition.typeTested[0].container?.type?.text || 'Not specified'}
+                      </Typography>
+                    </Grid>
+                    <Grid item xs={12} sm={6}>
+                      <Typography variant="subtitle2">Container Material</Typography>
+                      <Typography>
+                        {specimenDefinition.typeTested[0].container?.material?.text || 'Not specified'}
+                      </Typography>
+                    </Grid>
+                    <Grid item xs={12} sm={6}>
+                      <Typography variant="subtitle2">Minimum Volume</Typography>
+                      <Typography>
+                        {getSpecimenVolume(specimenDefinition) || 'Not specified'}
+                      </Typography>
+                    </Grid>
+                    <Grid item xs={12} sm={6}>
+                      <Typography variant="subtitle2">Storage Temperature</Typography>
+                      <Typography>
+                        {getSpecimenTemperature(specimenDefinition) || 'Not specified'}
+                      </Typography>
+                    </Grid>
+                  </>
+                )}
+              </Grid>
+            )}
+          </AccordionDetails>
+        </Accordion>
+      </Paper>
     </Box>
   );
+}
+
+// Helper function to extract observation unit
+function getObservationUnit(observation) {
+  if (observation.quantitativeDetails?.unit?.code) {
+    return observation.quantitativeDetails.unit.code;
+  }
+  return null;
+}
+
+// Helper function to extract observation reference range
+function getObservationRange(observation) {
+  if (observation.qualifiedInterval && observation.qualifiedInterval.length > 0) {
+    const interval = observation.qualifiedInterval[0];
+    const low = interval.range?.low?.value;
+    const high = interval.range?.high?.value;
+    
+    if (low !== undefined && high !== undefined) {
+      return `${low} - ${high}`;
+    } else if (low !== undefined) {
+      return `> ${low}`;
+    } else if (high !== undefined) {
+      return `< ${high}`;
+    }
+  }
+  return null;
+}
+
+// Helper function to extract specimen volume
+function getSpecimenVolume(specimen) {
+  if (!specimen.typeTested || !specimen.typeTested.length) return null;
+  
+  const volume = specimen.typeTested[0].container?.minimumVolumeQuantity;
+  if (volume?.value && volume?.unit) {
+    return `${volume.value} ${volume.unit}`;
+  }
+  return null;
+}
+
+// Helper function to extract specimen temperature
+function getSpecimenTemperature(specimen) {
+  if (!specimen.typeTested || !specimen.typeTested.length) return null;
+  
+  const handling = specimen.typeTested[0].handling;
+  if (handling && handling.length > 0) {
+    const temperatureRange = handling[0].temperatureRange;
+    const qualifier = handling[0].temperatureQualifier?.text;
+    
+    if (temperatureRange?.low?.value && temperatureRange?.low?.unit) {
+      return qualifier || `${temperatureRange.low.value} ${temperatureRange.low.unit}`;
+    }
+  }
+  return null;
 }
 
 export default TestDetail;

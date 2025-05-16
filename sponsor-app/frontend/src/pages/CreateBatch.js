@@ -10,35 +10,45 @@ import {
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import BatchForm from '../components/BatchForm';
-import { createBatch, fetchProtocols } from '../services/api';
+import { createBatch, fetchMedicinalProducts } from '../services/api';
 
 function CreateBatch() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
-  const [protocols, setProtocols] = useState([]);
+  const [medicinalProducts, setMedicinalProducts] = useState([]);
 
   useEffect(() => {
     const loadData = async () => {
       try {
         setLoading(true);
-        const protocolsData = await fetchProtocols();
+        const productsData = await fetchMedicinalProducts();
         
-        // FHIR returns a Bundle with entries
-        let protocolList = [];
-        if (protocolsData && protocolsData.resourceType === 'Bundle') {
-          if (protocolsData.entry && Array.isArray(protocolsData.entry)) {
-            protocolList = protocolsData.entry
+        // Process medicinal products
+        let productList = [];
+        if (productsData && productsData.resourceType === 'Bundle') {
+          // Only log in development
+          if (process.env.NODE_ENV === 'development') {
+            console.log('Retrieved medicinal products');
+          }
+          
+          if (productsData.entry && Array.isArray(productsData.entry)) {
+            productList = productsData.entry
               .filter(entry => entry && entry.resource)
               .map(entry => entry.resource);
+              
+            // Only log in development and keep it brief
+            if (process.env.NODE_ENV === 'development') {
+              console.log(`Processed ${productList.length} products`);
+            }
           }
         }
         
-        setProtocols(protocolList);
+        setMedicinalProducts(productList);
       } catch (error) {
-        console.error('Error loading protocols:', error);
-        setError('Failed to load protocols. Please try again later.');
+        console.error('Error loading data:', error);
+        setError('Failed to load required data. Please try again later.');
       } finally {
         setLoading(false);
       }
@@ -102,7 +112,7 @@ function CreateBatch() {
         
         <BatchForm 
           onSubmit={handleSubmit} 
-          protocols={protocols}
+          medicinalProducts={medicinalProducts}
         />
       </Paper>
     </Box>

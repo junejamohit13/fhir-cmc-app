@@ -20,16 +20,22 @@ function CreateOrganization() {
     try {
       setLoading(true);
       setError(null);
-      const response = await createOrganization(formData);
       
-      // Pass the newly created organization directly to avoid search/caching delays
+      // Add logging to debug
+      console.log('Submitting organization data:', formData);
+      const response = await createOrganization(formData);
+      console.log('Organization created successfully:', response);
+      
+      // Navigate back to the organization list and pass the new organization
+      // This will allow us to immediately display it without waiting for a refresh
       navigate('/organizations', { 
         state: { 
           refresh: true,
           newItemId: response.id,
-          newOrganization: response // Pass the entire organization so we can add it to the list
-        } 
+          newOrganization: response // Pass the entire organization object
+        }
       });
+      
     } catch (error) {
       console.error('Error creating organization:', error);
       setError('Failed to create organization. Please check your data and try again.');
@@ -69,4 +75,4 @@ function CreateOrganization() {
   );
 }
 
-export default CreateOrganization;
+export default CreateOrganization; 

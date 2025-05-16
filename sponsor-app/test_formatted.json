@@ -1,0 +1,68 @@
+{
+    "resourceType": "ActivityDefinition",
+    "id": "254",
+    "meta": {
+        "versionId": "1",
+        "lastUpdated": "2025-05-16T00:06:48.965+00:00",
+        "source": "#WacsteMjK6cqPWv6"
+    },
+    "extension": [
+        {
+            "url": "http://example.org/fhir/StructureDefinition/stability-test-protocol",
+            "valueReference": {
+                "reference": "PlanDefinition/3"
+            }
+        },
+        {
+            "url": "http://example.org/fhir/StructureDefinition/stability-test-type",
+            "valueString": "Assay"
+        },
+        {
+            "url": "http://example.org/fhir/StructureDefinition/stability-test-timepoint",
+            "valueString": "0 months"
+        },
+        {
+            "url": "http://example.org/fhir/StructureDefinition/stability-test-parameters",
+            "valueString": "{\"Param1\": \"val1\"}"
+        },
+        {
+            "url": "http://example.org/fhir/StructureDefinition/stability-test-acceptance-criteria",
+            "valueString": "{\"crit1\": \">95\"}"
+        },
+        {
+            "url": "http://example.org/fhir/StructureDefinition/observation-definitions",
+            "extension": [
+                {
+                    "url": "reference",
+                    "valueReference": {
+                        "reference": "ObservationDefinition/252",
+                        "display": "sample"
+                    }
+                }
+            ]
+        },
+        {
+            "url": "http://example.org/fhir/StructureDefinition/specimen-definition",
+            "valueReference": {
+                "reference": "SpecimenDefinition/253",
+                "display": "specifen dev"
+            }
+        }
+    ],
+    "name": "sample_def",
+    "title": "sample def",
+    "status": "active",
+    "description": "des",
+    "topic": [
+        {
+            "coding": [
+                {
+                    "system": "http://example.org/fhir/stability-test-types",
+                    "code": "Assay",
+                    "display": "Stability Test Assay"
+                }
+            ]
+        }
+    ],
+    "kind": "Task"
+}
