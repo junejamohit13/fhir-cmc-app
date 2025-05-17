@@ -25,7 +25,7 @@ import {
   Edit as EditIcon,
   Delete as DeleteIcon,
 } from '@mui/icons-material';
-import { fetchOrganizations, deleteOrganization } from '../services/api';
+import { fetchOrganizations, deleteOrganization, extractFhirServerUrl } from '../services/api';
 
 function OrganizationList() {
   const navigate = useNavigate();
@@ -190,8 +190,8 @@ function OrganizationList() {
               {organizations.map((org) => {
                 if (!org?.id || !org?.name) return null;
 
-                const telecom = org.telecom ?? [];
-                const url = telecom.find((t) => t?.system === 'url')?.value ?? '';
+                // Use the helper function to extract URL
+                const url = extractFhirServerUrl(org);
 
                 const extension = org.extension ?? [];
                 const apiKey =
@@ -199,24 +199,79 @@ function OrganizationList() {
                     (e) => e?.url === 'http://example.org/fhir/StructureDefinition/organization-api-key'
                   )?.valueString ?? '';
 
+                // Check if organization is highlighted (newly created)
+                const isHighlighted = org.id === highlightedId;
+
                 return (
                   <TableRow
                     key={org.id}
                     sx={{
-                      backgroundColor: highlightedId === org.id ? 'rgba(144, 202, 249, 0.3)' : 'inherit',
-                      transition: 'background-color 0.5s ease',
+                      ...isHighlighted && { backgroundColor: 'rgba(144, 202, 249, 0.3)' },
+                      ...!url && { borderLeft: '4px solid #f44336' }  // Red border for missing URL
                     }}
                   >
                     <TableCell>{org.name}</TableCell>
-                    <TableCell>{url}</TableCell>
-                    <TableCell>{apiKey ? '••••••••' : 'None'}</TableCell>
+                    <TableCell>
+                      {url ? (
+                        <Typography 
+                          component="span" 
+                          sx={{ 
+                            display: 'inline-block',
+                            maxWidth: '300px',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap'
+                          }}
+                          title={url}
+                        >
+                          {url}
+                        </Typography>
+                      ) : (
+                        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                          <Typography component="span" color="error" sx={{ mr: 1 }}>
+                            Missing FHIR server URL
+                          </Typography>
+                          <Button 
+                            size="small" 
+                            variant="outlined" 
+                            color="primary"
+                            onClick={() => handleEdit(org.id)}
+                          >
+                            Fix
+                          </Button>
+                        </Box>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {apiKey ? (
+                        <Typography
+                          component="span"
+                          sx={{
+                            display: 'inline-block',
+                            maxWidth: '200px',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                          title={apiKey}
+                        >
+                          {apiKey}
+                        </Typography>
+                      ) : (
+                        <Typography component="span" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                          None
+                        </Typography>
+                      )}
+                    </TableCell>
                     <TableCell align="right">
-                      <IconButton color="primary" onClick={() => handleEdit(org.id)} disabled={loading}>
-                        <EditIcon />
-                      </IconButton>
-                      <IconButton color="error" onClick={() => handleDelete(org)} disabled={loading}>
-                        <DeleteIcon />
-                      </IconButton>
+                      <Box>
+                        <IconButton onClick={() => handleEdit(org.id)}>
+                          <EditIcon />
+                        </IconButton>
+                        <IconButton onClick={() => handleDelete(org)}>
+                          <DeleteIcon />
+                        </IconButton>
+                      </Box>
                     </TableCell>
                   </TableRow>
                 );

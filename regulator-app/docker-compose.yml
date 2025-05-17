@@ -1,0 +1,64 @@
+version: "3"
+services:
+  # FHIR Server
+  regulator-fhir-server:
+    build: ../hapi-server
+    container_name: regulator-fhir-server
+    restart: on-failure
+    environment:
+      SPRING_DATASOURCE_URL: "jdbc:postgresql://regulator-postgres:5432/hapi"
+      SPRING_DATASOURCE_USERNAME: "admin"
+      SPRING_DATASOURCE_PASSWORD: "admin"
+      SPRING_DATASOURCE_DRIVERCLASSNAME: "org.postgresql.Driver"
+    ports:
+      - "8083:8080"
+  
+  # Postgres for FHIR Server
+  regulator-postgres:
+    image: postgres:15-alpine
+    container_name: regulator-postgres
+    restart: always
+    environment:
+      POSTGRES_DB: "hapi"
+      POSTGRES_USER: "admin"
+      POSTGRES_PASSWORD: "admin"
+    volumes:
+      - regulator-postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5436:5432"
+
+  # Backend API
+  regulator-backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: regulator-backend
+    restart: on-failure
+    environment:
+      - FHIR_SERVER_URL=http://regulator-fhir-server:8080/fhir
+      - DATABASE_URL=sqlite:///./app.db
+      - PYTHONUNBUFFERED=1  # Make Python output immediately visible in logs
+    ports:
+      - "8003:8000"
+    depends_on:
+      - regulator-fhir-server
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # Frontend
+  regulator-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: regulator-frontend
+    restart: on-failure
+    environment:
+      - REACT_APP_API_URL=http://localhost:8003
+      - REACT_APP_FHIR_SERVER_URL=http://regulator-fhir-server:8080/fhir
+    ports:
+      - "3003:3000"
+    depends_on:
+      - regulator-backend
+
+volumes:
+  regulator-postgres-data:

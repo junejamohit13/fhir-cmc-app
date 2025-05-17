@@ -1,0 +1,66 @@
+version: "3"
+services:
+  # FHIR Server
+  cro-fhir-server:
+    build: ../hapi-server
+    container_name: cro-fhir-server
+    restart: on-failure
+    environment:
+      SPRING_DATASOURCE_URL: "jdbc:postgresql://cro-postgres:5432/hapi"
+      SPRING_DATASOURCE_USERNAME: "admin"
+      SPRING_DATASOURCE_PASSWORD: "admin"
+      SPRING_DATASOURCE_DRIVERCLASSNAME: "org.postgresql.Driver"
+    ports:
+      - "8081:8080"
+  
+  # Postgres for FHIR Server
+  cro-postgres:
+    image: postgres:15-alpine
+    container_name: cro-postgres
+    restart: always
+    environment:
+      POSTGRES_DB: "hapi"
+      POSTGRES_USER: "admin"
+      POSTGRES_PASSWORD: "admin"
+    volumes:
+      - cro-postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5434:5432"
+
+  # Backend API
+  cro-backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: cro-backend
+    restart: on-failure
+    environment:
+      - FHIR_SERVER_URL=http://host.docker.internal:8081/fhir
+      - SPONSOR_SERVER_URL=http://host.docker.internal:8002
+      - DATABASE_URL=sqlite:///./app.db
+    ports:
+      - "8001:8000"
+    depends_on:
+      - cro-fhir-server
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # Frontend
+  cro-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: cro-frontend
+    restart: on-failure
+    environment:
+      - REACT_APP_API_URL=http://localhost:8001
+      - REACT_APP_FHIR_SERVER_URL=http://localhost:8081/fhir
+    volumes:
+      - ./frontend/src:/app/src
+    ports:
+      - "3001:3000"
+    depends_on:
+      - cro-backend
+
+volumes:
+  cro-postgres-data: 

@@ -41,11 +41,48 @@ function EditOrganization() {
     try {
       setSaving(true);
       setError(null);
-      await updateOrganization(id, formData);
-      navigate('/organizations');
+      
+      // Validate URL
+      if (!formData.fhir_server_url) {
+        setError('FHIR server URL is required');
+        setSaving(false);
+        return;
+      }
+      
+      console.log('Updating organization with data:', formData);
+      const updatedOrg = await updateOrganization(id, formData);
+      
+      // Check if the response includes a telecom URL
+      let hasValidUrl = false;
+      if (updatedOrg.telecom && Array.isArray(updatedOrg.telecom)) {
+        hasValidUrl = updatedOrg.telecom.some(t => t.system === 'url' && t.value);
+      }
+      
+      if (!hasValidUrl) {
+        console.warn('Organization updated but FHIR server URL may not have been saved correctly');
+      }
+      
+      navigate('/organizations', { 
+        state: { 
+          refresh: true,
+          newItemId: id,  // Highlight this item
+          newOrganization: updatedOrg // Use the updated org to refresh the list
+        } 
+      });
     } catch (error) {
       console.error('Error updating organization:', error);
-      setError('Failed to update organization. Please check your data and try again.');
+      let errorMsg = 'Failed to update organization.';
+      
+      // Extract more specific error message if available
+      if (error.response?.data?.detail) {
+        errorMsg += ` ${error.response.data.detail}`;
+      } else if (error.message) {
+        errorMsg += ` ${error.message}`;
+      } else {
+        errorMsg += ' Please check your data and try again.';
+      }
+      
+      setError(errorMsg);
     } finally {
       setSaving(false);
     }

@@ -13,10 +13,39 @@ const api = axios.create({
   timeout: 10000, // 10 second timeout to prevent hanging requests
 });
 
+// Add response interceptor for better debugging
+api.interceptors.response.use(
+  response => {
+    return response;
+  },
+  error => {
+    console.error('API Error:', error.response?.status, error.response?.data || error.message);
+    return Promise.reject(error);
+  }
+);
+
 // Protocol endpoints
 export const getProtocols = () => api.get('/protocols');
 export const getProtocol = (id) => api.get(`/protocols/${id}`);
-export const getSharedTests = (protocolId) => api.get(`/protocols/${protocolId}/tests`);
+
+// Enhanced test fetching function with better error handling
+export const getSharedTests = (protocolId) => {
+  console.log(`Fetching tests for protocol ${protocolId}`);
+  
+  return new Promise((resolve, reject) => {
+    api.get(`/protocols/${protocolId}/tests`)
+      .then(response => {
+        console.log(`Successfully fetched ${response.data.length || 0} tests`);
+        resolve(response);
+      })
+      .catch(error => {
+        console.error(`Error fetching tests for protocol ${protocolId}:`, error.response?.data || error.message);
+        
+        // Return empty array on error instead of rejecting
+        resolve({ data: [] });
+      });
+  });
+};
 
 // Organization endpoints
 export const getOrganizations = () => api.get('/organizations');
@@ -55,25 +84,46 @@ export const shareResult = (id, shareWithSponsor = true) =>
 
 // Sponsor communication endpoints
 export const getSharedProtocols = () => api.get('/sponsor/protocols');
+
+// Enhanced batch fetching with better logging and error handling
 export const getSharedBatches = (protocolId) => {
-  // Try the regular endpoint first, then fall back to sponsor endpoint if needed
+  console.log(`Fetching batches for protocol ${protocolId}`);
+  
   return new Promise((resolve, reject) => {
+    // Try the regular endpoint first
     api.get(`/batches?protocol_id=${protocolId}`)
       .then(response => {
         if (Array.isArray(response.data) && response.data.length > 0) {
+          console.log(`Found ${response.data.length} batches via standard endpoint`);
           resolve(response);
         } else {
+          console.log(`No batches found via standard endpoint, trying sponsor endpoint`);
           // If no batches found, try the sponsor-specific endpoint
           api.get(`/sponsor/protocols/${protocolId}/batches`)
-            .then(sponsorResponse => resolve(sponsorResponse))
-            .catch(error => reject(error));
+            .then(sponsorResponse => {
+              console.log(`Found ${sponsorResponse.data.length || 0} batches via sponsor endpoint`);
+              resolve(sponsorResponse);
+            })
+            .catch(error => {
+              console.error(`Failed to fetch batches from sponsor endpoint:`, error.response?.data || error.message);
+              // Return empty array instead of rejecting on sponsor endpoint failure
+              resolve({ data: [] });
+            });
         }
       })
       .catch(error => {
-        // If first request fails, try sponsor endpoint
+        console.error(`Failed to fetch batches via standard endpoint:`, error.response?.data || error.message);
+        // Try sponsor endpoint as fallback
         api.get(`/sponsor/protocols/${protocolId}/batches`)
-          .then(sponsorResponse => resolve(sponsorResponse))
-          .catch(sponsorError => reject(sponsorError));
+          .then(sponsorResponse => {
+            console.log(`Found ${sponsorResponse.data.length || 0} batches via sponsor endpoint (fallback)`);
+            resolve(sponsorResponse);
+          })
+          .catch(sponsorError => {
+            console.error(`Failed to fetch batches from sponsor endpoint (fallback):`, sponsorError.response?.data || sponsorError.message);
+            // Return empty array instead of rejecting
+            resolve({ data: [] });
+          });
       });
   });
 };

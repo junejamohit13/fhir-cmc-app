@@ -28,7 +28,14 @@ import {
   Tab,
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import { fetchOrganizations, shareProtocol, getProtocolShares, fetchBatches, fetchTests } from '../services/api';
+import { 
+  fetchOrganizations, 
+  shareProtocol, 
+  getProtocolShares, 
+  fetchBatches, 
+  fetchTests,
+  extractFhirServerUrl 
+} from '../services/api';
 
 function ShareProtocolDialog({ open, onClose, protocolId, protocolTitle, actions = [] }) {
   const [organizations, setOrganizations] = useState([]);
@@ -286,14 +293,16 @@ function ShareProtocolDialog({ open, onClose, protocolId, protocolTitle, actions
                       }}
                     >
                       {organizations.map((org) => {
-                        // Extract URL from telecom with null checks
-                        const telecom = org.telecom || [];
-                        const url = telecom.find(t => t?.system === 'url')?.value || '';
+                        // Use the extractFhirServerUrl helper function to get URL from either telecom or extension
+                        const url = extractFhirServerUrl(org);
                         
                         return (
                           <MenuItem key={org.id} value={org.id}>
                             <Checkbox checked={selectedOrgIds.indexOf(org.id) > -1} />
-                            <ListItemText primary={org.name} secondary={url} />
+                            <ListItemText 
+                              primary={org.name} 
+                              secondary={url || 'No FHIR server URL provided'}
+                            />
                           </MenuItem>
                         );
                       })}

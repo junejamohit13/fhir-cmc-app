@@ -54,20 +54,38 @@ function ProtocolDetail() {
               id: test.id,
               name: test.title || `Test ${test.id}`,
               description: test.description || 'No description provided',
-              specifications: test.acceptance_criteria ? 
-                Object.entries(test.acceptance_criteria)
-                  .map(([key, value]) => `${key}: ${value}`)
-                  .join(', ') : 
-                'Not specified',
-              method: test.parameters && test.parameters.method ? 
-                test.parameters.method : 'Not specified',
-              type: test.type || 'Unknown'
+              specifications: formatSpecifications(test),
+              method: formatMethod(test),
+              type: test.type || 'Unknown',
+              parameters: test.parameters || {},
+              acceptance_criteria: test.acceptance_criteria || {}
             }));
             
+            console.log('Formatted tests:', formattedTests);
             setTestDefinitions(formattedTests);
           } else {
-            console.warn('No actual stability tests found, only protocol timepoints');
-            setTestDefinitions([]);
+            console.warn('No actual stability tests found, looking for protocol timepoints instead');
+            
+            // If no real tests are found, try to create tests from protocol timepoints
+            const timepoints = extractTimepoints(testsResponse.data);
+            if (timepoints.length > 0) {
+              const timepointTests = timepoints.map(tp => ({
+                id: tp.id,
+                name: tp.title || `Timepoint ${tp.id}`,
+                description: tp.description || 'Timepoint from protocol',
+                specifications: 'From protocol timepoint',
+                method: 'Protocol-defined',
+                type: 'protocol_timepoint',
+                parameters: {},
+                timing: tp.timing
+              }));
+              
+              console.log('Created timepoint tests:', timepointTests);
+              setTestDefinitions(timepointTests);
+            } else {
+              console.warn('No protocol timepoints found either');
+              setTestDefinitions([]);
+            }
           }
         } else {
           console.warn('No tests found for this protocol');
@@ -77,8 +95,6 @@ function ProtocolDetail() {
         // Process batches data
         console.log('Shared batches data response:', batchesResponse);
         console.log('Shared batches data:', batchesResponse.data);
-        console.log('Shared batches data type:', typeof batchesResponse.data);
-        console.log('Is array?', Array.isArray(batchesResponse.data));
         
         if (Array.isArray(batchesResponse.data) && batchesResponse.data.length > 0) {
           console.log('Found shared batches:', batchesResponse.data.length);
@@ -119,6 +135,59 @@ function ProtocolDetail() {
     // Clean up the timer when component unmounts
     return () => clearInterval(refreshTimer);
   }, [id]);
+
+  // Helper function to format specifications from test data
+  const formatSpecifications = (test) => {
+    // Try to extract from acceptance_criteria
+    if (test.acceptance_criteria && Object.keys(test.acceptance_criteria).length > 0) {
+      return Object.entries(test.acceptance_criteria)
+        .map(([key, value]) => `${key}: ${value}`)
+        .join(', ');
+    }
+    
+    // Try to extract from parameters.specifications
+    if (test.parameters && test.parameters.specifications) {
+      return test.parameters.specifications;
+    }
+    
+    // Default
+    return 'Not specified';
+  };
+
+  // Helper function to format method information
+  const formatMethod = (test) => {
+    // Try different locations where method might be stored
+    if (test.parameters && test.parameters.method) {
+      return test.parameters.method;
+    }
+    
+    if (test.parameters && test.parameters.test_method) {
+      return test.parameters.test_method;
+    }
+    
+    if (test.parameters && test.parameters.procedure) {
+      return test.parameters.procedure;
+    }
+    
+    // Check if there's any method-like key in parameters
+    if (test.parameters) {
+      const methodKeys = Object.keys(test.parameters).filter(k => 
+        k.toLowerCase().includes('method') || 
+        k.toLowerCase().includes('procedure')
+      );
+      
+      if (methodKeys.length > 0) {
+        return test.parameters[methodKeys[0]];
+      }
+    }
+    
+    return 'Not specified';
+  };
+
+  // Helper function to extract timepoints from test data
+  const extractTimepoints = (tests) => {
+    return tests.filter(test => test.type === 'protocol_timepoint');
+  };
 
   if (loading) {
     return (
@@ -271,7 +340,7 @@ function ProtocolDetail() {
                     <Grid item xs={12} key={test.id}>
                       <Paper sx={{ p: 2 }}>
                         <Typography variant="subtitle1" gutterBottom>
-                          {test.name}
+                          {test.name} {test.type && <Chip size="small" label={test.type} sx={{ ml: 1, fontSize: '0.7rem' }} />}
                         </Typography>
                         <Grid container spacing={2}>
                           <Grid item xs={12} md={4}>
@@ -292,6 +361,22 @@ function ProtocolDetail() {
                             </Typography>
                             <Typography variant="body2">{test.method}</Typography>
                           </Grid>
+                          {test.parameters && Object.keys(test.parameters).length > 0 && (
+                            <Grid item xs={12}>
+                              <Typography variant="body2" color="text.secondary">
+                                Additional Parameters:
+                              </Typography>
+                              <Box component="ul" sx={{ pl: 2, mt: 0.5 }}>
+                                {Object.entries(test.parameters)
+                                  .filter(([key]) => !['method', 'procedure', 'specifications'].includes(key.toLowerCase()))
+                                  .map(([key, value]) => (
+                                    <Typography component="li" variant="body2" key={key}>
+                                      <strong>{key}:</strong> {typeof value === 'object' ? JSON.stringify(value) : value}
+                                    </Typography>
+                                  ))}
+                              </Box>
+                            </Grid>
+                          )}
                         </Grid>
                       </Paper>
                     </Grid>

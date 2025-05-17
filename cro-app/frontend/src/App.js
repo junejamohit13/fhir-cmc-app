@@ -12,8 +12,10 @@ import ProtocolList from './pages/ProtocolList';
 import ProtocolDetail from './pages/ProtocolDetail';
 import BatchList from './pages/BatchList';
 import CreateBatch from './pages/CreateBatch';
+import EditBatch from './pages/EditBatch';
 import ResultList from './pages/ResultList';
 import CreateResult from './pages/CreateResult';
+import EditResult from './pages/EditResult';
 
 // Theme
 const theme = createTheme({
@@ -42,8 +44,10 @@ function App() {
             <Route path="/protocols/:id" element={<ProtocolDetail />} />
             <Route path="/batches" element={<BatchList />} />
             <Route path="/batches/create" element={<CreateBatch />} />
+            <Route path="/batches/edit/:id" element={<EditBatch />} />
             <Route path="/results" element={<ResultList />} />
             <Route path="/results/create" element={<CreateResult />} />
+            <Route path="/results/edit/:id" element={<EditResult />} />
           </Routes>
         </AppLayout>
       </Router>

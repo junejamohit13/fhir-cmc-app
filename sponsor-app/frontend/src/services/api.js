@@ -114,10 +114,26 @@ export const fetchOrganizationById = async (id) => {
 
 export const createOrganization = async (organizationData) => {
   try {
+    // Add validation for URL format
+    let fhirUrl = organizationData.fhir_server_url?.trim();
+    if (!fhirUrl) {
+      throw new Error('FHIR server URL is required');
+    }
+    
+    // Try to normalize URL if needed
+    if (!fhirUrl.startsWith('http://') && !fhirUrl.startsWith('https://')) {
+      fhirUrl = 'http://' + fhirUrl;
+    }
+    
+    // For CRO middleware integration - IMPORTANT NOTES:
+    // - Use http://localhost:8001/sponsor/shared-resources for middleware (recommended)
+    // - If using Docker, use http://cro-backend:8000/sponsor/shared-resources
+    // - Direct FHIR server URLs like http://localhost:8081/fhir can cause connection issues
+    
     // Transform data format for FHIR Organization
     const data = {
       name: organizationData.name,
-      url: organizationData.fhir_server_url,
+      url: fhirUrl,
       api_key: organizationData.api_key,
       organization_type: organizationData.organization_type || 'sponsor',
     };
@@ -127,6 +143,17 @@ export const createOrganization = async (organizationData) => {
     
     const response = await api.post('/organizations', data);
     console.log('Organization created successfully:', response.data);
+    
+    // Verify the URL in the response
+    if (response.data && response.data.telecom) {
+      const urlTelecom = response.data.telecom.find(t => t && t.system === 'url');
+      if (urlTelecom) {
+        console.log('Verified URL in created organization:', urlTelecom.value);
+      } else {
+        console.warn('URL not found in created organization telecom data');
+      }
+    }
+    
     return response.data;
   } catch (error) {
     console.error('Error creating organization:', error);
@@ -136,20 +163,65 @@ export const createOrganization = async (organizationData) => {
 
 export const updateOrganization = async (id, organizationData) => {
   try {
+    // Add validation for URL format
+    let fhirUrl = organizationData.fhir_server_url?.trim();
+    if (!fhirUrl) {
+      throw new Error('FHIR server URL is required');
+    }
+    
+    // Try to normalize URL if needed
+    if (!fhirUrl.startsWith('http://') && !fhirUrl.startsWith('https://')) {
+      fhirUrl = 'http://' + fhirUrl;
+    }
+    
     // Transform data format for FHIR Organization
     const data = {
       name: organizationData.name,
-      url: organizationData.fhir_server_url,
+      url: fhirUrl,
       api_key: organizationData.api_key,
       organization_type: organizationData.organization_type || 'sponsor',
     };
     
+    console.log(`Updating organization ${id} with data:`, data);
+    
     const response = await api.put(`/organizations/${id}`, data);
+    
+    // Verify the URL in the response
+    if (response.data && response.data.telecom) {
+      const urlTelecom = response.data.telecom.find(t => t && t.system === 'url');
+      if (urlTelecom) {
+        console.log('Verified URL in updated organization:', urlTelecom.value);
+      } else {
+        console.warn('URL not found in updated organization telecom data');
+      }
+    }
+    
     return response.data;
   } catch (error) {
     console.error(`Error updating organization ${id}:`, error);
     throw error;
   }
+};
+
+// Helper function to extract FHIR server URL from organization
+export const extractFhirServerUrl = (organization) => {
+  if (!organization) return '';
+  
+  // Check the extension field for the URL
+  if (organization.extension && Array.isArray(organization.extension)) {
+    const urlExt = organization.extension.find(
+      e => e && e.url === 'http://example.org/fhir/StructureDefinition/organization-url'
+    );
+    if (urlExt && urlExt.valueString) {
+      // Check if this is a middleware URL or direct FHIR server URL
+      const url = urlExt.valueString;
+      
+      // Return the URL as is - the backend will handle conversion to middleware if needed
+      return url;
+    }
+  }
+  
+  return '';
 };
 
 export const deleteOrganization = async (id) => {
@@ -172,7 +244,7 @@ export const shareProtocol = async (protocolId, sharingData) => {
           organization_ids: sharingData.organizationIds,
           share_mode: sharingData.shareMode,
           selected_tests: sharingData.selectedTests,
-          //share_batches: sharingData.shareBatches,
+          share_batches: sharingData.shareBatches,
           selected_batches: sharingData.selectedBatches
         };
         
@@ -350,10 +422,17 @@ export const fetchResultById = async (id) => {
 
 export const createTestResult = async (resultData) => {
   try {
+    console.log('Submitting test result with data:', resultData);
     const response = await api.post('/results', resultData);
+    console.log('Test result created successfully:', response.data);
     return response.data;
   } catch (error) {
     console.error('Error creating test result:', error);
+    if (error.response) {
+      console.error('Error response data:', error.response.data);
+      console.error('Error response status:', error.response.status);
+      console.error('Error response headers:', error.response.headers);
+    }
     throw error;
   }
 };

@@ -20,7 +20,26 @@ function CreateOrganization() {
     try {
       setLoading(true);
       setError(null);
+      
+      // Validate URL
+      if (!formData.fhir_server_url) {
+        setError('FHIR server URL is required');
+        setLoading(false);
+        return;
+      }
+      
+      console.log('Creating organization with data:', formData);
       const response = await createOrganization(formData);
+      
+      // Check if the response includes a telecom URL
+      let hasValidUrl = false;
+      if (response.telecom && Array.isArray(response.telecom)) {
+        hasValidUrl = response.telecom.some(t => t.system === 'url' && t.value);
+      }
+      
+      if (!hasValidUrl) {
+        console.warn('Organization created but FHIR server URL may not have been saved correctly');
+      }
       
       // Pass the newly created organization directly to avoid search/caching delays
       navigate('/organizations', { 
@@ -32,7 +51,18 @@ function CreateOrganization() {
       });
     } catch (error) {
       console.error('Error creating organization:', error);
-      setError('Failed to create organization. Please check your data and try again.');
+      let errorMsg = 'Failed to create organization.';
+      
+      // Extract more specific error message if available
+      if (error.response?.data?.detail) {
+        errorMsg += ` ${error.response.data.detail}`;
+      } else if (error.message) {
+        errorMsg += ` ${error.message}`;
+      } else {
+        errorMsg += ' Please check your data and try again.';
+      }
+      
+      setError(errorMsg);
     } finally {
       setLoading(false);
     }

@@ -16,6 +16,11 @@ import {
   Card,
   CardContent,
   CardHeader,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
 } from '@mui/material';
 import { 
   Edit as EditIcon, 
@@ -23,7 +28,7 @@ import {
   Delete as DeleteIcon,
   Share as ShareIcon
 } from '@mui/icons-material';
-import { fetchProtocolById, deleteProtocol, getProtocolShares, fetchMedicinalProductById } from '../services/api';
+import { fetchProtocolById, deleteProtocol, getProtocolShares, fetchMedicinalProductById, extractFhirServerUrl } from '../services/api';
 import ShareProtocolDialog from '../components/ShareProtocolDialog';
 
 function ProtocolDetail() {
@@ -358,7 +363,7 @@ function ProtocolDetail() {
                 <ListItem key={org.id}>
                   <ListItemText 
                     primary={org.name} 
-                    secondary={`${org.url || "No URL specified"}`} 
+                    secondary={extractFhirServerUrl(org) || "No FHIR server URL provided"} 
                   />
                 </ListItem>
               ))}

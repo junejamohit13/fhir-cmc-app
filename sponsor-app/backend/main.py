@@ -519,18 +519,20 @@ async def get_organizations():
 async def create_organization(organization: OrganizationCreate):
     """Create a new organization using FHIR Organization resource"""
     try:
+        # Validate URL format
+        url = organization.url.strip()
+        if not url:
+            raise HTTPException(status_code=400, detail="FHIR server URL is required")
+        
+        # Attempt to normalize the URL format
+        if not (url.startswith('http://') or url.startswith('https://')):
+            url = 'http://' + url  # Add default scheme if missing
+            
         organization_data = {
             "resourceType": "Organization",
             "name": organization.name,
             "active": True,
-            "telecom": [
-                {
-                    "system": "url",
-                    "value": organization.url,
-                    "use": "work"
-                }
-            ],
-            # Store the API key and organization type as extensions
+            # Store all data in extensions for consistency
             "extension": [
                 {
                     "url": "http://example.org/fhir/StructureDefinition/organization-api-key",
@@ -539,9 +541,17 @@ async def create_organization(organization: OrganizationCreate):
                 {
                     "url": "http://example.org/fhir/StructureDefinition/organization-type",
                     "valueString": organization.organization_type or "sponsor"
+                },
+                {
+                    "url": "http://example.org/fhir/StructureDefinition/organization-url",
+                    "valueString": url
                 }
             ]
         }
+        
+        # Log the request for debugging
+        print(f"Creating organization: {organization.name} with URL: {url}")
+        print(f"Organization data: {organization_data}")
         
         response = requests.post(
             f"{FHIR_SERVER_URL}/Organization",
@@ -552,7 +562,51 @@ async def create_organization(organization: OrganizationCreate):
             }
         )
         response.raise_for_status()
-        return response.json()
+        created_org = response.json()
+        
+        # Verify that URL extension was correctly saved
+        extension_url_found = False
+        
+        if "extension" in created_org and created_org["extension"]:
+            for ext in created_org["extension"]:
+                if ext.get("url") == "http://example.org/fhir/StructureDefinition/organization-url" and ext.get("valueString") == url:
+                    extension_url_found = True
+                    print(f"Verified URL in extension: {ext.get('valueString')}")
+                    break
+        
+        # If URL extension is missing, update the organization
+        if not extension_url_found:
+            print(f"URL extension missing, updating organization to add it")
+            try:
+                # Prepare the data for update
+                if "extension" not in created_org:
+                    created_org["extension"] = []
+                    
+                # Add URL extension
+                created_org["extension"].append({
+                    "url": "http://example.org/fhir/StructureDefinition/organization-url",
+                    "valueString": url
+                })
+                
+                # Update the organization
+                update_response = requests.put(
+                    f"{FHIR_SERVER_URL}/Organization/{created_org['id']}",
+                    json=created_org,
+                    headers={
+                        "Content-Type": "application/fhir+json",
+                        "Accept": "application/fhir+json"
+                    }
+                )
+                
+                if update_response.status_code >= 200 and update_response.status_code < 300:
+                    created_org = update_response.json()
+                    print(f"Successfully updated organization {created_org['id']} with URL extension")
+                else:
+                    print(f"Warning: Failed to update organization with URL extension: {update_response.status_code}")
+            except Exception as update_error:
+                print(f"Error updating organization with URL extension: {str(update_error)}")
+            
+        return created_org
     except requests.RequestException as e:
         error_message = str(e)
         if hasattr(e, 'response') and e.response:
@@ -562,6 +616,7 @@ async def create_organization(organization: OrganizationCreate):
             except:
                 error_message = e.response.text
         
+        print(f"Error creating organization: {error_message}")
         raise HTTPException(status_code=500, detail=f"Failed to create organization: {error_message}")
 
 @app.get("/organizations/{org_id}")
@@ -573,7 +628,60 @@ async def get_organization(org_id: str):
             headers={"Accept": "application/fhir+json"}
         )
         response.raise_for_status()
-        return response.json()
+        org_data = response.json()
+        
+        # Check if telecom array exists and contains URL
+        url_found = False
+        if "telecom" in org_data and org_data["telecom"]:
+            for telecom in org_data["telecom"]:
+                if telecom.get("system") == "url":
+                    url_found = True
+                    print(f"Found URL for org {org_id}: {telecom.get('value')}")
+                    break
+        
+        # If no telecom array or URL not found, try to find the URL in extensions
+        # This is a workaround for organizations that may be missing the telecom array
+        if not url_found:
+            print(f"Warning: No URL found in telecom for organization {org_id}")
+            
+            # Look in extensions for a URL
+            url_value = None
+            for ext in org_data.get("extension", []):
+                if ext.get("url") == "http://example.org/fhir/StructureDefinition/organization-url":
+                    url_value = ext.get("valueString")
+                    break
+            
+            # If we found a URL in extensions, add it to telecom
+            if url_value:
+                print(f"Found URL in extension: {url_value}")
+                if "telecom" not in org_data:
+                    org_data["telecom"] = []
+                
+                org_data["telecom"].append({
+                    "system": "url",
+                    "value": url_value,
+                    "use": "work"
+                })
+                
+                # Try to update the organization with the telecom data
+                try:
+                    update_response = requests.put(
+                        f"{FHIR_SERVER_URL}/Organization/{org_id}",
+                        json=org_data,
+                        headers={
+                            "Content-Type": "application/fhir+json",
+                            "Accept": "application/fhir+json"
+                        }
+                    )
+                    if update_response.status_code >= 200 and update_response.status_code < 300:
+                        org_data = update_response.json()
+                        print(f"Successfully added telecom data to organization {org_id}")
+                    else:
+                        print(f"Failed to update organization with telecom data: {update_response.status_code}")
+                except Exception as update_error:
+                    print(f"Error updating organization with telecom data: {str(update_error)}")
+        
+        return org_data
     except requests.RequestException as e:
         if e.response and e.response.status_code == 404:
             raise HTTPException(status_code=404, detail=f"Organization with ID {org_id} not found")
@@ -583,6 +691,15 @@ async def get_organization(org_id: str):
 async def update_organization(org_id: str, organization: OrganizationCreate):
     """Update an organization"""
     try:
+        # Validate URL format
+        url = organization.url.strip()
+        if not url:
+            raise HTTPException(status_code=400, detail="FHIR server URL is required")
+            
+        # Attempt to normalize the URL format
+        if not (url.startswith('http://') or url.startswith('https://')):
+            url = 'http://' + url  # Add default scheme if missing
+            
         # First get the existing organization
         try:
             get_response = requests.get(
@@ -599,39 +716,33 @@ async def update_organization(org_id: str, organization: OrganizationCreate):
         # Update the fields
         existing_org["name"] = organization.name
         
-        # Update the URL
-        telecom_found = False
-        for telecom in existing_org.get("telecom", []):
-            if telecom.get("system") == "url":
-                telecom["value"] = organization.url
-                telecom_found = True
-                break
-        
-        if not telecom_found:
-            if "telecom" not in existing_org:
-                existing_org["telecom"] = []
-            existing_org["telecom"].append({
-                "system": "url",
-                "value": organization.url,
-                "use": "work"
-            })
-        
-        # Update the extensions
-        if "extension" not in existing_org:
+        # Ensure extension array exists
+        if "extension" not in existing_org or existing_org["extension"] is None:
             existing_org["extension"] = []
             
-        # Update API key extension
+        # Update or add URL in extension array
+        url_extension_found = False
         api_key_updated = False
         org_type_updated = False
         
-        for ext in existing_org.get("extension", []):
-            if ext.get("url") == "http://example.org/fhir/StructureDefinition/organization-api-key":
+        for ext in existing_org["extension"]:
+            if ext.get("url") == "http://example.org/fhir/StructureDefinition/organization-url":
+                ext["valueString"] = url
+                url_extension_found = True
+            elif ext.get("url") == "http://example.org/fhir/StructureDefinition/organization-api-key":
                 ext["valueString"] = organization.api_key or ""
                 api_key_updated = True
             elif ext.get("url") == "http://example.org/fhir/StructureDefinition/organization-type":
                 ext["valueString"] = organization.organization_type or "sponsor"
                 org_type_updated = True
         
+        # Add any missing extensions
+        if not url_extension_found:
+            existing_org["extension"].append({
+                "url": "http://example.org/fhir/StructureDefinition/organization-url",
+                "valueString": url
+            })
+            
         if not api_key_updated:
             existing_org["extension"].append({
                 "url": "http://example.org/fhir/StructureDefinition/organization-api-key",
@@ -644,6 +755,9 @@ async def update_organization(org_id: str, organization: OrganizationCreate):
                 "valueString": organization.organization_type or "sponsor"
             })
         
+        # Log update for debugging
+        print(f"Updating organization {org_id}: {organization.name} with URL: {url}")
+        
         # Send the updated organization back to the FHIR server
         response = requests.put(
             f"{FHIR_SERVER_URL}/Organization/{org_id}",
@@ -654,7 +768,20 @@ async def update_organization(org_id: str, organization: OrganizationCreate):
             }
         )
         response.raise_for_status()
-        return response.json()
+        updated_org = response.json()
+        
+        # Verify the URL is present in the extension
+        extension_url_found = False
+        
+        if "extension" in updated_org and updated_org["extension"]:
+            for ext in updated_org["extension"]:
+                if ext.get("url") == "http://example.org/fhir/StructureDefinition/organization-url" and ext.get("valueString") == url:
+                    extension_url_found = True
+                    break
+                    
+        print(f"After update - URL found in extension: {extension_url_found}")
+        
+        return updated_org
     except HTTPException:
         raise
     except requests.RequestException as e:
@@ -666,6 +793,7 @@ async def update_organization(org_id: str, organization: OrganizationCreate):
             except:
                 error_message = e.response.text
             
+        print(f"Error updating organization: {error_message}")
         raise HTTPException(status_code=500, detail=f"Failed to update organization: {error_message}")
 
 @app.delete("/organizations/{org_id}")
@@ -1091,13 +1219,27 @@ async def share_protocol(protocol_id: str, share_request: ProtocolShareRequest):
                 if org_response.status_code == 200:
                     org = org_response.json()
                     
-                    # Extract URL from telecom
+                    # Debug the organization data
+                    print(f"DEBUG - Organization {org_id} data: {json.dumps(org)}")
+                    
+                    # Extract URL directly from extension
                     url = None
-                    for telecom in org.get("telecom", []):
-                        if telecom.get("system") == "url":
-                            url = telecom.get("value")
-                            if url:
+                    if "extension" in org and org.get("extension"):
+                        print(f"DEBUG - Found {len(org.get('extension'))} extensions")
+                        for ext in org.get("extension", []):
+                            print(f"DEBUG - Extension: {json.dumps(ext)}")
+                            if ext.get("url") == "http://example.org/fhir/StructureDefinition/organization-url":
+                                url = ext.get("valueString")
+                                print(f"DEBUG - Found URL in extension: {url}")
                                 break
+                    else:
+                        print(f"DEBUG - No extensions found in organization {org_id}")
+                    
+                    # Log what we found
+                    if url:
+                        print(f"DEBUG - Using URL for org {org_id}: {url}")
+                    else:
+                        print(f"DEBUG - No URL found for org {org_id} in extension")
                     
                     # Extract API key from extension
                     api_key = None
@@ -1123,12 +1265,8 @@ async def share_protocol(protocol_id: str, share_request: ProtocolShareRequest):
                                 
                                 # First, prepare the protocol
                                 external_protocol = existing_protocol.copy()
-                                # Create a temporary logical ID for the protocol in the bundle
-                                protocol_logical_id = f"urn:uuid:{protocol_id}"
-                                
-                                # Remove the ID as it will be assigned by the external server
-                                if "id" in external_protocol:
-                                    del external_protocol["id"]
+                                # Use the original protocol ID
+                                protocol_logical_id = protocol_id
                                 
                                 # Make sure it has meta tags
                                 if "meta" not in external_protocol:
@@ -1158,41 +1296,34 @@ async def share_protocol(protocol_id: str, share_request: ProtocolShareRequest):
                                                 is_for_protocol = True
                                                 break
                                         
-                                        # Only include tests that are for this protocol and are selected (if in specificTests mode)
-                                        if is_for_protocol and (share_request.share_mode == "fullProtocol" or test_id in share_request.selected_tests):
-                                            # Create a copy of the test to modify
+                                        if is_for_protocol:
+                                            # Create a copy of the test
                                             external_test = test.copy()
                                             
-                                            # Remove the ID so it gets assigned by the external server
-                                            if "id" in external_test:
-                                                del external_test["id"]
-                                            
-                                            # Make sure it has meta tags
-                                            if "meta" not in external_test:
-                                                external_test["meta"] = {}
-                                            if "tag" not in external_test["meta"]:
-                                                external_test["meta"]["tag"] = []
-                                            
-                                            # Add a tag to indicate this is a shared test
-                                            external_test["meta"]["tag"].append({
-                                                "system": "http://example.org/fhir/tags",
-                                                "code": "shared-test"
-                                            })
-                                            
-                                            # Create a logical ID for this test in the bundle
-                                            test_logical_id = f"urn:uuid:{test_id}"
-                                            
-                                            # Update protocol reference to use the logical ID
-                                            for ext in external_test.get("extension", []):
+                                            # Update the protocol reference to use the logical ID
+                                            for ext_idx, ext in enumerate(external_test.get("extension", [])):
                                                 if ext.get("url") == "http://example.org/fhir/StructureDefinition/stability-test-protocol":
-                                                    ext["valueReference"]["reference"] = protocol_logical_id
+                                                    # Replace the reference with the logical ID
+                                                    external_test["extension"][ext_idx]["valueReference"]["reference"] = f"PlanDefinition/{protocol_logical_id}"
+                                                    break
+                                            else:
+                                                # Add the protocol reference if it doesn't exist
+                                                if "extension" not in external_test:
+                                                    external_test["extension"] = []
+                                                external_test["extension"].append({
+                                                    "url": "http://example.org/fhir/StructureDefinition/stability-test-protocol",
+                                                    "valueReference": {
+                                                        "reference": f"PlanDefinition/{protocol_logical_id}"
+                                                    }
+                                                })
                                             
+                                            # Add test to bundle entries
                                             associated_tests.append({
-                                                "fullUrl": test_logical_id,
+                                                "fullUrl": f"ActivityDefinition/{test_id}",
                                                 "resource": external_test,
                                                 "request": {
-                                                    "method": "POST",
-                                                    "url": "ActivityDefinition"
+                                                    "method": "PUT",  # Use PUT to preserve IDs
+                                                    "url": f"ActivityDefinition/{test_id}"
                                                 }
                                             })
                                 
@@ -1205,117 +1336,116 @@ async def share_protocol(protocol_id: str, share_request: ProtocolShareRequest):
                                     hasattr(share_request, 'selectedBatches') and
                                     share_request.selectedBatches):
                                     
+                                    print(f"DEBUG - Processing {len(share_request.selectedBatches)} batches for sharing")
+                                    
                                     for batch_id in share_request.selectedBatches:
                                         try:
+                                            print(f"DEBUG - Fetching Medication resource for batch {batch_id}")
                                             # Get the batch
                                             batch_response = requests.get(
                                                 f"{FHIR_SERVER_URL}/Medication/{batch_id}",
                                                 headers={"Accept": "application/fhir+json"}
                                             )
+                                            batch_response.raise_for_status()
+                                            batch = batch_response.json()
+                                            print(f"DEBUG - Retrieved Medication resource: {json.dumps(batch)}")
                                             
-                                            if batch_response.status_code == 200:
-                                                batch = batch_response.json()
+                                            # Create a copy for the external server
+                                            external_batch = batch.copy()
+                                            
+                                            # Add meta tag to indicate this is a shared batch
+                                            if "meta" not in external_batch:
+                                                external_batch["meta"] = {}
+                                            if "tag" not in external_batch["meta"]:
+                                                external_batch["meta"]["tag"] = []
+                                            
+                                            external_batch["meta"]["tag"].append({
+                                                "system": "http://example.org/fhir/tags",
+                                                "code": "shared-batch"
+                                            })
+                                            
+                                            # Make sure extension exists
+                                            if "extension" not in external_batch:
+                                                external_batch["extension"] = []
                                                 
-                                                # Create a logical ID for this batch
-                                                batch_logical_id = f"urn:uuid:{batch_id}"
-                                                
-                                                # Create a copy without the ID for the external server
-                                                external_batch = batch.copy()
-                                                if "id" in external_batch:
-                                                    del external_batch["id"]
-                                                
-                                                # Add meta tag to indicate this is a shared batch
-                                                if "meta" not in external_batch:
-                                                    external_batch["meta"] = {}
-                                                if "tag" not in external_batch["meta"]:
-                                                    external_batch["meta"]["tag"] = []
-                                                
-                                                external_batch["meta"]["tag"].append({
-                                                    "system": "http://example.org/fhir/tags",
-                                                    "code": "shared-batch"
+                                            # Extract existing sponsor info from the protocol
+                                            sponsor_name = None
+                                            sponsor_id = None
+                                            
+                                            for ext in existing_protocol.get("extension", []):
+                                                if ext.get("url") == "http://example.org/fhir/StructureDefinition/sponsor":
+                                                    sponsor_name = ext.get("valueString")
+                                                elif ext.get("url") == "http://example.org/fhir/StructureDefinition/sponsor-id":
+                                                    sponsor_id = ext.get("valueString")
+                                            
+                                            # If we have sponsor info, add it to the batch
+                                            if sponsor_name:
+                                                external_batch["extension"].append({
+                                                    "url": "http://example.org/fhir/StructureDefinition/sponsor",
+                                                    "valueString": sponsor_name
+                                                })
+                                            
+                                            if sponsor_id:
+                                                external_batch["extension"].append({
+                                                    "url": "http://example.org/fhir/StructureDefinition/sponsor-id",
+                                                    "valueString": sponsor_id
                                                 })
                                                 
-                                                # Make sure extension exists
-                                                if "extension" not in external_batch:
-                                                    external_batch["extension"] = []
-                                                    
-                                                # Extract existing sponsor info from the protocol
-                                                sponsor_name = None
-                                                sponsor_id = None
+                                            # Add protocol_id to batch for easier reference
+                                            if "identifier" not in external_batch:
+                                                external_batch["identifier"] = []
+                                            
+                                            # Check if protocol ID already exists in identifiers
+                                            protocol_id_exists = False
+                                            for ident in external_batch.get("identifier", []):
+                                                if (ident.get("system") == "http://example.org/fhir/identifier/protocol" and
+                                                    ident.get("value") == protocol_id):
+                                                    protocol_id_exists = True
+                                                    break
+                                            
+                                            # Add protocol ID if it doesn't exist
+                                            if not protocol_id_exists:
+                                                external_batch["identifier"].append({
+                                                    "system": "http://example.org/fhir/identifier/protocol",
+                                                    "value": protocol_id
+                                                })
                                                 
-                                                for ext in existing_protocol.get("extension", []):
-                                                    if ext.get("url") == "http://example.org/fhir/StructureDefinition/sponsor":
-                                                        sponsor_name = ext.get("valueString")
-                                                    elif ext.get("url") == "http://example.org/fhir/StructureDefinition/sponsor-id":
-                                                        sponsor_id = ext.get("valueString")
-                                                
-                                                # If we have sponsor info, add it to the batch
-                                                if sponsor_name:
-                                                    external_batch["extension"].append({
-                                                        "url": "http://example.org/fhir/StructureDefinition/sponsor",
-                                                        "valueString": sponsor_name
-                                                    })
-                                                
-                                                if sponsor_id:
-                                                    external_batch["extension"].append({
-                                                        "url": "http://example.org/fhir/StructureDefinition/sponsor-id",
-                                                        "valueString": sponsor_id
-                                                    })
-                                                    
-                                                # Add protocol_id to batch for easier reference
-                                                if "identifier" not in external_batch:
-                                                    external_batch["identifier"] = []
-                                                
-                                                # Check if protocol ID already exists in identifiers
-                                                protocol_id_exists = False
-                                                for ident in external_batch.get("identifier", []):
-                                                    if (ident.get("system") == "http://example.org/fhir/identifier/protocol" and
-                                                        ident.get("value") == protocol_id):
-                                                        protocol_id_exists = True
-                                                        break
-                                                
-                                                # Add protocol ID if it doesn't exist
-                                                if not protocol_id_exists:
-                                                    external_batch["identifier"].append({
-                                                        "system": "http://example.org/fhir/identifier/protocol",
-                                                        "value": protocol_id
-                                                    })
-                                                    
-                                                # Add proper medication code for stability batches
-                                                external_batch["code"] = {
-                                                    "coding": [
-                                                        {
-                                                            "system": "http://example.org/fhir/medication-types",
-                                                            "code": "stability-batch"
-                                                        }
-                                                    ],
-                                                    "text": external_batch.get("code", {}).get("text", "Stability Test Batch")
-                                                }
-                                                
-                                                # Update the protocol reference to use the logical ID
-                                                for ext_idx, ext in enumerate(external_batch.get("extension", [])):
-                                                    if ext.get("url") == "http://example.org/fhir/StructureDefinition/batch-protocol":
-                                                        # Replace the reference with the logical ID
-                                                        external_batch["extension"][ext_idx]["valueReference"]["reference"] = protocol_logical_id
-                                                        break
-                                                else:
-                                                    # Add the protocol reference if it doesn't exist
-                                                    external_batch["extension"].append({
-                                                        "url": "http://example.org/fhir/StructureDefinition/batch-protocol",
-                                                        "valueReference": {
-                                                            "reference": protocol_logical_id
-                                                        }
-                                                    })
-                                                
-                                                # Add batch to bundle entries
-                                                associated_batches.append({
-                                                    "fullUrl": batch_logical_id,
-                                                    "resource": external_batch,
-                                                    "request": {
-                                                        "method": "POST",
-                                                        "url": "Medication"
+                                            # Add proper medication code for stability batches
+                                            external_batch["code"] = {
+                                                "coding": [
+                                                    {
+                                                        "system": "http://example.org/fhir/medication-types",
+                                                        "code": "stability-batch"
+                                                    }
+                                                ],
+                                                "text": external_batch.get("code", {}).get("text", "Stability Test Batch")
+                                            }
+                                            
+                                            # Update the protocol reference to use the logical ID
+                                            for ext_idx, ext in enumerate(external_batch.get("extension", [])):
+                                                if ext.get("url") == "http://example.org/fhir/StructureDefinition/batch-protocol":
+                                                    # Replace the reference with the logical ID
+                                                    external_batch["extension"][ext_idx]["valueReference"]["reference"] = f"PlanDefinition/{protocol_logical_id}"
+                                                    break
+                                            else:
+                                                # Add the protocol reference if it doesn't exist
+                                                external_batch["extension"].append({
+                                                    "url": "http://example.org/fhir/StructureDefinition/batch-protocol",
+                                                    "valueReference": {
+                                                        "reference": f"PlanDefinition/{protocol_logical_id}"
                                                     }
                                                 })
+                                            
+                                            # Add batch to bundle entries
+                                            associated_batches.append({
+                                                "fullUrl": f"Medication/{batch_id}",
+                                                "resource": external_batch,
+                                                "request": {
+                                                    "method": "PUT",  # Use PUT to preserve IDs
+                                                    "url": f"Medication/{batch_id}"
+                                                }
+                                            })
+                                            print(f"DEBUG - Added Medication resource to bundle entries")
                                         except Exception as batch_error:
                                             print(f"Error processing batch {batch_id} for sharing: {str(batch_error)}")
                                 
@@ -1325,18 +1455,89 @@ async def share_protocol(protocol_id: str, share_request: ProtocolShareRequest):
                                     "type": "transaction",
                                     "entry": [
                                         {
-                                            "fullUrl": protocol_logical_id,
+                                            "fullUrl": f"PlanDefinition/{protocol_logical_id}",
                                             "resource": external_protocol,
                                             "request": {
-                                                "method": "POST",
-                                                "url": "PlanDefinition"
+                                                "method": "PUT",  # Use PUT to preserve IDs
+                                                "url": f"PlanDefinition/{protocol_logical_id}"
                                             }
                                         }
                                     ] + associated_tests + associated_batches
                                 }
                                 
+                                print(f"DEBUG - Bundle contents:")
+                                print(f"- 1 PlanDefinition")
+                                print(f"- {len(associated_tests)} ActivityDefinitions")
+                                print(f"- {len(associated_batches)} Medication resources")
+                                print(f"DEBUG - Bundle entries: {json.dumps([entry['fullUrl'] for entry in bundle['entry']])}")
+                                
+                                # Add all referenced resources to the bundle
+                                referenced_resources = set()
+                                
+                                # Helper function to add referenced resources
+                                async def add_referenced_resource(reference, resource_type):
+                                    if not reference or not reference.startswith(f"{resource_type}/"):
+                                        return
+                                    
+                                    resource_id = reference.split("/")[1]
+                                    if resource_id in referenced_resources:
+                                        return
+                                    
+                                    try:
+                                        print(f"DEBUG - Fetching referenced {resource_type} {resource_id}")
+                                        response = requests.get(
+                                            f"{FHIR_SERVER_URL}/{resource_type}/{resource_id}",
+                                            headers={"Accept": "application/fhir+json"}
+                                        )
+                                        response.raise_for_status()
+                                        resource = response.json()
+                                        
+                                        # Add to bundle
+                                        bundle["entry"].append({
+                                            "fullUrl": f"{resource_type}/{resource_id}",
+                                            "resource": resource,
+                                            "request": {
+                                                "method": "PUT",
+                                                "url": f"{resource_type}/{resource_id}"
+                                            }
+                                        })
+                                        referenced_resources.add(resource_id)
+                                        print(f"DEBUG - Added {resource_type} {resource_id} to bundle")
+                                    except Exception as e:
+                                        print(f"Error fetching referenced {resource_type} {resource_id}: {str(e)}")
+                                
+                                # Add MedicinalProductDefinition from PlanDefinition
+                                if "subjectReference" in external_protocol and "reference" in external_protocol["subjectReference"]:
+                                    await add_referenced_resource(external_protocol["subjectReference"]["reference"], "MedicinalProductDefinition")
+                                
+                                # Add Organization from PlanDefinition's shared organizations extension
+                                for ext in external_protocol.get("extension", []):
+                                    if ext.get("url") == "http://example.org/fhir/StructureDefinition/plan-definition-shared-organizations":
+                                        for org_ext in ext.get("extension", []):
+                                            if "valueReference" in org_ext and "reference" in org_ext["valueReference"]:
+                                                await add_referenced_resource(org_ext["valueReference"]["reference"], "Organization")
+                                
+                                # Add all referenced resources from ActivityDefinitions
+                                for test_entry in associated_tests:
+                                    test = test_entry["resource"]
+                                    for ext in test.get("extension", []):
+                                        if ext.get("url") == "http://example.org/fhir/StructureDefinition/observation-definitions":
+                                            for obs_ext in ext.get("extension", []):
+                                                if "valueReference" in obs_ext and "reference" in obs_ext["valueReference"]:
+                                                    await add_referenced_resource(obs_ext["valueReference"]["reference"], "ObservationDefinition")
+                                        elif ext.get("url") == "http://example.org/fhir/StructureDefinition/specimen-definition":
+                                            if "valueReference" in ext and "reference" in ext["valueReference"]:
+                                                await add_referenced_resource(ext["valueReference"]["reference"], "SpecimenDefinition")
+                                
+                                print(f"DEBUG - Bundle contents:")
+                                print(f"- 1 PlanDefinition")
+                                print(f"- {len(associated_tests)} ActivityDefinitions")
+                                print(f"- {len(associated_batches)} Medication resources")
+                                print(f"- {len(referenced_resources)} referenced resources")
+                                print(f"DEBUG - Bundle entries: {json.dumps([entry['fullUrl'] for entry in bundle['entry']])}")
+                                
                                 # Send the bundle to the external server
-                                print(f"Pushing bundle with protocol, {len(associated_tests)} test definitions, and {len(associated_batches)} batches to {url}")
+                                print(f"Pushing bundle with protocol, {len(associated_tests)} test definitions, {len(associated_batches)} batches, and {len(referenced_resources)} referenced resources to {url}")
                                 
                                 # Prepare headers
                                 headers = {
@@ -1348,8 +1549,28 @@ async def share_protocol(protocol_id: str, share_request: ProtocolShareRequest):
                                 if api_key:
                                     headers["Authorization"] = f"Bearer {api_key}"
                                 
+                                # Check if this is a CRO backend URL or a direct FHIR server URL
+                                target_url = url
+                                
+                                # If URL is for a CRO FHIR server, check if we should use their middleware endpoint instead
+                                if "/fhir" in url:
+                                    # Try to see if there's a middleware endpoint available
+                                    cro_backend_url = url.replace("/fhir", "/sponsor/shared-resources")
+                                    print(f"Attempting to use CRO middleware endpoint: {cro_backend_url}")
+                                    target_url = cro_backend_url
+                                  
+                                # For Docker connectivity, replace localhost with container names if needed
+                                if "localhost:8001" in target_url:
+                                    docker_url = target_url.replace("localhost:8001", "cro-backend:8000")
+                                    print(f"Replacing {target_url} with Docker network URL: {docker_url}")
+                                    target_url = docker_url
+                                elif "localhost:8081" in target_url:
+                                    docker_url = target_url.replace("localhost:8081", "cro-fhir-server:8080")
+                                    print(f"Replacing {target_url} with Docker network URL: {docker_url}")
+                                    target_url = docker_url
+                                print(f"bundle: {bundle}")
                                 bundle_response = requests.post(
-                                    f"{url}",  # Root endpoint for transaction bundles
+                                    target_url,  # Use middleware endpoint if available
                                     json=bundle,
                                     headers=headers,
                                     timeout=45  # Longer timeout for bundle processing
@@ -1363,7 +1584,12 @@ async def share_protocol(protocol_id: str, share_request: ProtocolShareRequest):
                                     if len(associated_batches) > 0:
                                         message_parts.append(f"{len(associated_batches)} batches")
                                     
-                                    success_message = " and ".join(message_parts) + f" to {url}"
+                                    # Include both the original URL and target URL if different
+                                    endpoint_message = f" to {url}"
+                                    if target_url != url:
+                                        endpoint_message = f" to {url} via middleware {target_url}"
+                                    
+                                    success_message = " and ".join(message_parts) + endpoint_message
                                     print(f"Successfully shared with {org.get('name')}: {success_message}")
                                     success, message = True, success_message
                                 else:
@@ -1467,12 +1693,13 @@ async def get_protocol_shares(protocol_id: str):
                 if org_response.status_code == 200:
                     org = org_response.json()
                     
-                    # Extract URL from telecom
+                    # Extract URL from extension
                     url = ""
-                    for telecom in org.get("telecom", []):
-                        if telecom.get("system") == "url":
-                            url = telecom.get("value", "")
-                            break
+                    for ext in org.get("extension", []):
+                        if ext.get("url") == "http://example.org/fhir/StructureDefinition/organization-url":
+                            url = ext.get("valueString", "")
+                            if url:
+                                break
                     
                     # Extract API key from extension
                     api_key = ""
@@ -2123,6 +2350,8 @@ async def get_batch(batch_id: str):
 async def create_test_result(result: TestResultCreate):
     """Create a new test result using FHIR Observation resource"""
     try:
+        print(f"Creating test result with data: {result.dict()}")
+        
         # Convert to FHIR Observation
         result_data = {
             "resourceType": "Observation",
@@ -2157,6 +2386,8 @@ async def create_test_result(result: TestResultCreate):
             ]
         }
         
+        print(f"Converted to FHIR Observation: {json.dumps(result_data, indent=2)}")
+        
         # Link to ObservationDefinition if provided
         if result.observation_definition_id:
             result_data["hasMember"] = [
@@ -2188,6 +2419,7 @@ async def create_test_result(result: TestResultCreate):
                 }
             ]
         
+        print(f"Sending request to FHIR server: {FHIR_SERVER_URL}/Observation")
         response = requests.post(
             f"{FHIR_SERVER_URL}/Observation",
             json=result_data,
@@ -2196,9 +2428,13 @@ async def create_test_result(result: TestResultCreate):
                 "Accept": "application/fhir+json"
             }
         )
-        response.raise_for_status()
         
-        # Return the created result
+        if response.status_code >= 400:
+            print(f"FHIR server error response: {response.status_code}")
+            print(f"Error details: {response.text}")
+            response.raise_for_status()
+            
+        print(f"Successfully created test result with ID: {response.json().get('id')}")
         return response.json()
     except requests.RequestException as e:
         error_message = str(e)
@@ -2206,10 +2442,16 @@ async def create_test_result(result: TestResultCreate):
             try:
                 error_detail = e.response.json()
                 error_message = json.dumps(error_detail)
+                print(f"FHIR server error response: {error_message}")
             except:
                 error_message = e.response.text
+                print(f"FHIR server error response (text): {error_message}")
         
+        print(f"Failed to create test result: {error_message}")
         raise HTTPException(status_code=500, detail=f"Failed to create test result: {error_message}")
+    except Exception as e:
+        print(f"Unexpected error creating test result: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to create test result: {str(e)}")
 
 @app.get("/results")
 async def get_results(
