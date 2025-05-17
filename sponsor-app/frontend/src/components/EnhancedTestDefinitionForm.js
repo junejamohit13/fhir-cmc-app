@@ -407,11 +407,47 @@ function EnhancedTestDefinitionForm({ initialData = {}, onSubmit, protocols = []
                 ))}
               </Select>
             </FormControl>
-            <Typography variant="caption" color="text.secondary">
-              Timepoints are defined in the protocol. Select a protocol to see available timepoints.
-            </Typography>
-          </Grid>
+          <Typography variant="caption" color="text.secondary">
+            Timepoints are defined in the protocol. Select a protocol to see available timepoints.
+          </Typography>
         </Grid>
+
+        {/* status */}
+        <Grid item xs={12} sm={6}>
+          <FormControl fullWidth>
+            <InputLabel id="status-label">Status</InputLabel>
+            <Select
+              labelId="status-label"
+              value={testData.status}
+              label="Status"
+              onChange={(e) => setTestData((prev) => ({ ...prev, status: e.target.value }))}
+              inputProps={{ name: 'status' }}
+            >
+              <MenuItem value="draft">Draft</MenuItem>
+              <MenuItem value="active">Active</MenuItem>
+              <MenuItem value="retired">Retired</MenuItem>
+            </Select>
+          </FormControl>
+        </Grid>
+
+        {/* kind */}
+        <Grid item xs={12} sm={6}>
+          <FormControl fullWidth>
+            <InputLabel id="kind-label">Kind</InputLabel>
+            <Select
+              labelId="kind-label"
+              value={testData.kind}
+              label="Kind"
+              onChange={(e) => setTestData((prev) => ({ ...prev, kind: e.target.value }))}
+              inputProps={{ name: 'kind' }}
+            >
+              <MenuItem value="Task">Task</MenuItem>
+              <MenuItem value="ServiceRequest">ServiceRequest</MenuItem>
+              <MenuItem value="MedicationRequest">MedicationRequest</MenuItem>
+            </Select>
+          </FormControl>
+        </Grid>
+      </Grid>
       </Paper>
 
       {/* ---------- Observation Definitions (Measurements) ---------- */}

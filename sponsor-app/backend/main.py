@@ -1826,7 +1826,7 @@ async def create_enhanced_test(test: EnhancedTestDefinitionCreate):
         created_resources = {}
         
         # Step 1: Create ObservationDefinition resources if provided
-        observation_refs = []
+        observation_ids = []
         if test.observation_definitions:
             for obs_def in test.observation_definitions:
                 # Create each observation definition
@@ -1838,19 +1838,16 @@ async def create_enhanced_test(test: EnhancedTestDefinitionCreate):
                     obs_response = await create_observation_definition(obs_def_with_protocol)
                     obs_id = obs_response.get("id")
                     if obs_id:
-                        observation_refs.append({
-                            "reference": f"ObservationDefinition/{obs_id}",
-                            "display": obs_def.title
-                        })
+                        observation_ids.append(obs_id)
                         created_resources[f"ObservationDefinition/{obs_id}"] = obs_response
                 except Exception as obs_error:
                     print(f"Error creating ObservationDefinition: {str(obs_error)}")
                     # Continue with other definitions
             
-            print(f"Created {len(observation_refs)} ObservationDefinition resources")
+            print(f"Created {len(observation_ids)} ObservationDefinition resources")
         
         # Step 2: Create SpecimenDefinition if provided
-        specimen_ref = None
+        specimen_id = None
         if test.specimen_definition:
             specimen_def = test.specimen_definition.copy()
             if not specimen_def.protocol_id:
@@ -1860,10 +1857,6 @@ async def create_enhanced_test(test: EnhancedTestDefinitionCreate):
                 specimen_response = await create_specimen_definition(specimen_def)
                 specimen_id = specimen_response.get("id")
                 if specimen_id:
-                    specimen_ref = {
-                        "reference": f"SpecimenDefinition/{specimen_id}",
-                        "display": specimen_def.title
-                    }
                     created_resources[f"SpecimenDefinition/{specimen_id}"] = specimen_response
                     print(f"Created SpecimenDefinition with id: {specimen_id}")
             except Exception as specimen_error:
@@ -1873,6 +1866,11 @@ async def create_enhanced_test(test: EnhancedTestDefinitionCreate):
         # Step 3: Create the main ActivityDefinition (test definition)
         activity_data = {
             "resourceType": "ActivityDefinition",
+            "meta": {
+                "profile": [
+                    "http://hl7.org/fhir/uv/pharm-quality/StructureDefinition/ActivityDefinition-drug-pq"
+                ]
+            },
             "name": test.title.replace(" ", "_").lower(),
             "title": test.title,
             "status": test.status,
@@ -1934,24 +1932,17 @@ async def create_enhanced_test(test: EnhancedTestDefinitionCreate):
                 "valueString": json.dumps(test.acceptance_criteria)
             })
         
-        # Add links to ObservationDefinitions using extensions instead of observationResultRequirement
-        if observation_refs:
-            activity_data["extension"].append({
-                "url": "http://example.org/fhir/StructureDefinition/observation-definitions",
-                "extension": [
-                    {
-                        "url": "reference",
-                        "valueReference": ref
-                    } for ref in observation_refs
-                ]
-            })
-        
-        # Add link to SpecimenDefinition using extension instead of specimenRequirement
-        if specimen_ref:
-            activity_data["extension"].append({
-                "url": "http://example.org/fhir/StructureDefinition/specimen-definition",
-                "valueReference": specimen_ref
-            })
+        # Add links to ObservationDefinitions using observationResultRequirement
+        if observation_ids:
+            activity_data["observationResultRequirement"] = [
+                f"ObservationDefinition/{oid}" for oid in observation_ids
+            ]
+
+        # Add link to SpecimenDefinition using specimenRequirement
+        if specimen_id:
+            activity_data["specimenRequirement"] = [
+                f"SpecimenDefinition/{specimen_id}"
+            ]
         
         # Create the ActivityDefinition
         activity_response = requests.post(
@@ -2216,6 +2207,13 @@ async def create_batch(batch: BatchCreate):
                 "valueReference": {
                     "reference": f"MedicinalProductDefinition/{batch.medicinal_product_id}",
                     "display": "Medicinal Product Definition"
+                }
+            })
+
+            # Provide standard ingredient link for improved interoperability
+            batch_data.setdefault("ingredient", []).append({
+                "itemReference": {
+                    "reference": f"MedicinalProductDefinition/{batch.medicinal_product_id}"
                 }
             })
         

@@ -7,9 +7,11 @@ import {
   Paper,
   CircularProgress,
   Alert,
+  Tooltip,
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-import TestDefinitionForm from '../components/TestDefinitionForm';
+import InfoIcon from '@mui/icons-material/Info';
+import EnhancedTestDefinitionForm from '../components/EnhancedTestDefinitionForm';
 import { createTest, fetchProtocols } from '../services/api';
 
 function CreateTest() {
@@ -53,25 +55,25 @@ function CreateTest() {
       setError(null);
       
       // Add a success message to indicate creation is in progress
-      const sucessMessage = document.createElement('div');
-      sucessMessage.innerHTML = 'Creating test... This may take a few moments.';
-      sucessMessage.style.padding = '10px';
-      sucessMessage.style.backgroundColor = '#e8f5e9';
-      sucessMessage.style.color = '#2e7d32';
-      sucessMessage.style.borderRadius = '4px';
-      sucessMessage.style.marginBottom = '20px';
-      document.querySelector('form').prepend(sucessMessage);
+      const successMessage = document.createElement('div');
+      successMessage.innerHTML = 'Creating test... This may take a few moments.';
+      successMessage.style.padding = '10px';
+      successMessage.style.backgroundColor = '#e8f5e9';
+      successMessage.style.color = '#2e7d32';
+      successMessage.style.borderRadius = '4px';
+      successMessage.style.marginBottom = '20px';
+      document.querySelector('form').prepend(successMessage);
       
       console.log('Submitting test data:', testData);
       const response = await createTest(testData);
-      console.log('Test created with ID:', response.id);
+      console.log('Test created with ID:', response.test_id);
       
       // Navigate back to the tests list with a state flag to trigger refresh
       // and highlight the newly created test
       navigate('/tests', { 
         state: { 
           refresh: true, 
-          newItemId: response.id 
+          newItemId: response.test_id 
         } 
       });
     } catch (error) {
@@ -102,8 +104,18 @@ function CreateTest() {
       </Box>
 
       <Paper sx={{ p: 3, mb: 4 }}>
-        <Typography variant="h4" component="h1" gutterBottom>
-          Create New Stability Test
+        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+          <Typography variant="h4" component="h1" gutterBottom>
+            Create Stability Test
+          </Typography>
+          <Tooltip title="This form creates a fully-compliant FHIR resource hierarchy for stability testing with proper ObservationDefinition and SpecimenDefinition resources">
+            <InfoIcon sx={{ ml: 2, color: 'primary.main' }} />
+          </Tooltip>
+        </Box>
+        
+        <Typography variant="body1" color="text.secondary" paragraph>
+          Create a new stability test following the HL7 FHIR dx-pq Implementation Guide structure. 
+          This creates a proper resource hierarchy with ActivityDefinition, ObservationDefinition, and SpecimenDefinition.
         </Typography>
         
         {error && (
@@ -112,7 +124,7 @@ function CreateTest() {
           </Alert>
         )}
         
-        <TestDefinitionForm 
+        <EnhancedTestDefinitionForm 
           onSubmit={handleSubmit} 
           protocols={protocols}
         />

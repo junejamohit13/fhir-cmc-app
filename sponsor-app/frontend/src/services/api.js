@@ -300,7 +300,7 @@ export const fetchTestById = async (id) => {
 export const createTest = async (testData) => {
   try {
     console.log('Creating test with data:', testData);
-    const response = await api.post('/tests', testData);
+    const response = await api.post('/enhanced-tests', testData);
     
     // No cache to invalidate now - we've removed caching
     
@@ -546,17 +546,6 @@ export const fetchTestSpecimenDefinition = async (testId) => {
   }
 };
 
-export const createEnhancedTest = async (testData) => {
-  try {
-    console.log('Creating enhanced test with data:', testData);
-    const response = await api.post('/enhanced-tests', testData);
-    console.log('Enhanced test created successfully, response:', response.data);
-    return response.data;
-  } catch (error) {
-    console.error('Error creating enhanced test:', error);
-    throw error;
-  }
-};
 
 // Utility function to directly fetch a resource by its ID
 // This is useful when a resource has just been created but might not yet appear in search results
