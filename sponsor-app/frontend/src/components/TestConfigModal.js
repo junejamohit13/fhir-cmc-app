@@ -12,7 +12,7 @@ import {
   MenuItem
 } from '@mui/material';
 
-function TestConfigModal({ open, onClose, onSave, initialData = {}, timepoints = [] }) {
+function TestConfigModal({ open, onClose, onSave, initialData = null, timepoints = [] }) {
   const [form, setForm] = useState({
     test_type: '',
     test_subtype: '',
@@ -20,7 +20,7 @@ function TestConfigModal({ open, onClose, onSave, initialData = {}, timepoints =
     material: '',
     storage: '',
     notes: '',
-    ...initialData,
+    ...(initialData || {}),
   });
 
   useEffect(() => {
@@ -31,7 +31,7 @@ function TestConfigModal({ open, onClose, onSave, initialData = {}, timepoints =
       material: '',
       storage: '',
       notes: '',
-      ...initialData,
+      ...(initialData || {}),
     });
   }, [initialData, open]);
 
