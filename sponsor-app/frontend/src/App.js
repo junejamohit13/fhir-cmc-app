@@ -18,7 +18,6 @@ import EditOrganization from './pages/EditOrganization';
 // New Stability Testing Pages
 import TestList from './pages/TestList';
 import CreateTest from './pages/CreateTest';
-import CreateEnhancedTest from './pages/CreateEnhancedTest';
 import TestDetail from './pages/TestDetail';
 import EditTest from './pages/EditTest';
 import BatchList from './pages/BatchList';
@@ -72,7 +71,6 @@ function App() {
             {/* Stability Test Routes */}
             <Route path="/tests" element={<TestList />} />
             <Route path="/tests/create" element={<CreateTest />} />
-            <Route path="/tests/enhanced/create" element={<CreateEnhancedTest />} />
             <Route path="/tests/:id" element={<TestDetail />} />
             <Route path="/tests/:id/edit" element={<EditTest />} />
             

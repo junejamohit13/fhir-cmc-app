@@ -175,16 +175,6 @@ function TestList() {
           >
             Create Test
           </Button>
-          <Tooltip title="Create a test using the full FHIR resource hierarchy per HL7 dx-pq IG">
-            <Button
-              variant="contained"
-              color="secondary"
-              startIcon={<AddIcon />}
-              onClick={() => navigate('/tests/enhanced/create')}
-            >
-              Create Enhanced Test
-            </Button>
-          </Tooltip>
         </Box>
       </Box>
 
@@ -212,16 +202,6 @@ function TestList() {
             >
               Create Test
             </Button>
-            <Tooltip title="Create a test using the full FHIR resource hierarchy per HL7 dx-pq IG">
-              <Button
-                variant="contained"
-                color="secondary"
-                startIcon={<AddIcon />}
-                onClick={() => navigate('/tests/enhanced/create')}
-              >
-                Create Enhanced Test
-              </Button>
-            </Tooltip>
           </Box>
         </Paper>
       ) : (
