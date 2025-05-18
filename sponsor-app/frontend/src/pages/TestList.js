@@ -175,6 +175,8 @@ function TestList() {
           >
             Create Test
           </Button>
+
+          {/* Removed separate enhanced test option now that all tests use the enhanced format */}
         </Box>
       </Box>
 
@@ -202,6 +204,8 @@ function TestList() {
             >
               Create Test
             </Button>
+
+            {/* Removed separate enhanced test option */}
           </Box>
         </Paper>
       ) : (
